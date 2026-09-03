@@ -383,13 +383,21 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
       }
     }
 
+    const fallbackLaneData = getSeedDataForLane(lane, date);
+
     return {
       unit,
       day,
       hourly,
-      criticalOperations: (opsRes.data || []) as CriticalOperation[],
-      downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
-      downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
+      criticalOperations: (opsRes.data && opsRes.data.length > 0)
+        ? (opsRes.data as CriticalOperation[])
+        : (fallbackLaneData?.criticalOperations || INITIAL_DEMO_DATA.criticalOperations),
+      downtimeSummary: (dtSumRes.data && dtSumRes.data.length > 0)
+        ? (dtSumRes.data as DowntimeSummaryItem[])
+        : (fallbackLaneData?.downtimeSummary || INITIAL_DEMO_DATA.downtimeSummary),
+      downtimeDetails: (dtDetRes.data && dtDetRes.data.length > 0)
+        ? (dtDetRes.data as DowntimeDetailItem[])
+        : (fallbackLaneData?.downtimeDetails || INITIAL_DEMO_DATA.downtimeDetails),
     };
   } catch (err) {
     console.error('Supabase query error, fallback to local storage:', err);

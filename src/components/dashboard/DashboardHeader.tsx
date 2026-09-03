@@ -7,9 +7,6 @@ import {
   User,
   Factory,
   Layers,
-  Clock,
-  BarChart3,
-  Table2,
 } from 'lucide-react';
 import { FullscreenButton } from '../common/FullscreenButton';
 
@@ -17,43 +14,67 @@ interface DashboardHeaderProps {
   productionDate: string; // YYYY-MM-DD
   supervisorName: string;
   supervisorId?: string;
-  selectedHour: number;
-  onHourChange: (hour: number) => void;
   selectedLane: string;
   availableLanes: string[];
   onLaneChange: (lane: string) => void;
   onDateChange: (newDate: string) => void;
   onEditClick: () => void;
-  viewMode: 'charts' | 'table';
-  onViewModeChange: (mode: 'charts' | 'table') => void;
 }
+
+// Local date formatter avoiding UTC shifts
+const formatLocalDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   productionDate,
   supervisorName,
   supervisorId,
-  selectedHour,
-  onHourChange,
   selectedLane,
   availableLanes,
   onLaneChange,
   onDateChange,
   onEditClick,
-  viewMode,
-  onViewModeChange,
 }) => {
-  // Navigation helpers for dates
-  const handleStepDate = (days: number) => {
+  // Navigation helper for stepping dates (skips Sunday)
+  const handleStepDate = (direction: number) => {
     const [y, m, d] = productionDate.split('-').map(Number);
-    const dateObj = new Date(y, m - 1, d);
-    dateObj.setDate(dateObj.getDate() + days);
-    const iso = dateObj.toISOString().split('T')[0];
-    onDateChange(iso);
+    // Midday (12:00) prevents any daylight saving or timezone boundary flips
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    dateObj.setDate(dateObj.getDate() + direction);
+
+    // Skip Sunday (0 is Sunday: factory weekly off)
+    if (dateObj.getDay() === 0) {
+      dateObj.setDate(dateObj.getDate() + (direction > 0 ? 1 : -1));
+    }
+
+    onDateChange(formatLocalDate(dateObj));
+  };
+
+  // Direct date picker handler (skips Sunday)
+  const handleDateSelect = (val: string) => {
+    if (!val) return;
+    const [y, m, d] = val.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+
+    // If user picks Sunday, automatically forward to Monday
+    if (dateObj.getDay() === 0) {
+      dateObj.setDate(dateObj.getDate() + 1);
+    }
+
+    onDateChange(formatLocalDate(dateObj));
   };
 
   const handleToday = () => {
-    const today = new Date().toISOString().split('T')[0];
-    onDateChange(today);
+    const today = new Date();
+    // If today is Sunday, move to next working day (Monday)
+    if (today.getDay() === 0) {
+      today.setDate(today.getDate() + 1);
+    }
+    onDateChange(formatLocalDate(today));
   };
 
   return (
@@ -73,116 +94,49 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Center: Shift Context Controls (Smooth Animated Center Transition) */}
-      <div className="hidden md:flex items-center justify-center flex-1 transition-all duration-500 ease-in-out">
-        <div className="flex items-center transition-all duration-500 ease-in-out">
-          {/* Date Selector Badge */}
-          <div className="h-8 flex items-center gap-1 bg-slate-950/70 border border-slate-700/80 px-2.5 rounded-lg shadow-inner transition-all duration-500 ease-in-out">
-            <Calendar className="w-3.5 h-3.5 text-white flex-shrink-0 mr-0.5" />
-            <span className="text-[11px] text-white font-bold">Date:</span>
+      {/* 2. Center: Date Selector Badge Centered */}
+      <div className="hidden md:flex items-center justify-center flex-1">
+        <div className="h-8 flex items-center gap-1.5 bg-slate-950/70 border border-slate-700/80 px-2.5 rounded-lg shadow-inner">
+          <Calendar className="w-3.5 h-3.5 text-white flex-shrink-0 mr-0.5" />
+          <span className="text-[11px] text-white font-bold">Date:</span>
 
-            <button
-              onClick={() => handleStepDate(-1)}
-              title="Previous Day"
-              className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
-            >
-              <ChevronLeft className="w-3 h-3" />
-            </button>
-
-            {/* Direct Date Input with white calendar picker */}
-            <input
-              type="date"
-              value={productionDate}
-              onChange={(e) => e.target.value && onDateChange(e.target.value)}
-              className="bg-slate-900 text-white font-bold text-xs rounded px-1.5 py-0.5 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer [color-scheme:dark]"
-              title="Select Production Date"
-            />
-
-            <button
-              onClick={() => handleStepDate(1)}
-              title="Next Day"
-              className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
-            >
-              <ChevronRight className="w-3 h-3" />
-            </button>
-
-            <button
-              onClick={handleToday}
-              title="Set Today's Date"
-              className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-white rounded border border-slate-600 transition cursor-pointer"
-            >
-              Today
-            </button>
-          </div>
-
-          {/* Hourly View Selector Dropdown (Shown in Charts mode, smoothly collapsed in Table mode) */}
-          <div
-            className={`transition-all duration-500 ease-in-out overflow-hidden flex items-center ${
-              viewMode === 'charts'
-                ? 'max-w-[260px] opacity-100 ml-2 scale-100'
-                : 'max-w-0 opacity-0 ml-0 scale-95 pointer-events-none'
-            }`}
+          <button
+            onClick={() => handleStepDate(-1)}
+            title="Previous Working Day (Skips Sunday)"
+            className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
           >
-            <div className="h-8 flex items-center gap-1.5 bg-slate-950/70 border border-amber-500/50 px-2 rounded-lg shadow-inner whitespace-nowrap flex-shrink-0">
-              <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-              <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">Hour:</span>
-              <select
-                id="header-hour-dropdown"
-                value={selectedHour}
-                onChange={(e) => onHourChange(Number(e.target.value))}
-                className="bg-slate-900 text-amber-300 font-black text-xs rounded px-1.5 py-0.5 border border-amber-500/40 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
-              >
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((h) => {
-                  let suffix = 'th';
-                  if (h === 1) suffix = 'st';
-                  else if (h === 2) suffix = 'nd';
-                  else if (h === 3) suffix = 'rd';
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
 
-                  const timeRange = `${String(7 + h).padStart(2, '0')}:00 - ${String(8 + h).padStart(2, '0')}:00`;
-                  return (
-                    <option key={h} value={h} className="bg-slate-900 text-white font-bold">
-                      {h}{suffix} Hour ({timeRange})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          </div>
+          {/* Direct Date Input with white calendar icon */}
+          <input
+            type="date"
+            value={productionDate}
+            onChange={(e) => handleDateSelect(e.target.value)}
+            className="bg-slate-900 text-white font-bold text-xs rounded px-1.5 py-0.5 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer [color-scheme:dark]"
+            title="Select Production Date (Excludes Sunday)"
+          />
+
+          <button
+            onClick={() => handleStepDate(1)}
+            title="Next Working Day (Skips Sunday)"
+            className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
+          >
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            onClick={handleToday}
+            title="Set Current Working Date"
+            className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-white rounded border border-slate-600 transition cursor-pointer ml-0.5"
+          >
+            Today
+          </button>
         </div>
       </div>
 
-      {/* 3. Right: View Mode Toggle, Lane Dropdown, Supervisor, Fullscreen, Edit Button */}
+      {/* 3. Right: Lane Dropdown, Dedicated Supervisor, Fullscreen, Edit Button */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-        {/* Charts vs Table Switcher Button */}
-        <div className="h-8 flex items-center bg-slate-950/80 border border-slate-700/80 p-0.5 rounded-lg shadow-inner">
-          <button
-            type="button"
-            onClick={() => onViewModeChange('charts')}
-            className={`h-7 px-2 rounded-md text-[11px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
-              viewMode === 'charts'
-                ? 'bg-cyan-600 text-white shadow-xs'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Switch to Charts View"
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Charts</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onViewModeChange('table')}
-            className={`h-7 px-2 rounded-md text-[11px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
-              viewMode === 'table'
-                ? 'bg-cyan-600 text-white shadow-xs'
-                : 'text-slate-400 hover:text-white'
-            }`}
-            title="Switch to Whole Table View"
-          >
-            <Table2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Table</span>
-          </button>
-        </div>
-
         {/* Lane Dropdown Badge */}
         <div className="h-8 flex items-center gap-1 bg-slate-950/80 border border-cyan-500/50 px-2 rounded-lg shadow-inner">
           <Layers className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />

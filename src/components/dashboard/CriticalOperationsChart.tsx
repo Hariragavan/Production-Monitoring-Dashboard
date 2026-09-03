@@ -1,6 +1,6 @@
 import React from 'react';
 import type { CriticalOperation } from '../../types';
-import { Award, AlertCircle } from 'lucide-react';
+import { Award, AlertCircle, Check } from 'lucide-react';
 
 interface CriticalOperationsChartProps {
   operations: CriticalOperation[];
@@ -13,30 +13,31 @@ export const CriticalOperationsChart: React.FC<CriticalOperationsChartProps> = (
   else if (selectedHour === 2) suffix = 'nd';
   else if (selectedHour === 3) suffix = 'rd';
 
-  // Filter operations for the selected hour
-  const hourOps = operations.filter(op => op.hour === selectedHour);
+  // Filter operations for selected hour
+  const hourOps = operations.filter((op) => op.hour === selectedHour);
 
-  // If no operations specifically tagged with this hour, show all unique operations
-  const displayList = hourOps.length > 0 ? hourOps : operations.filter(op => op.hour === 1 || !op.hour);
+  // If no operations found for this hour, show fallback from any hour or dummy list
+  const displayOps = hourOps.length > 0 ? hourOps : operations.slice(0, 6);
 
-  const sortedList = [...displayList].sort((a, b) => a.operation_no - b.operation_no);
+  // Sort by operation number
+  const sortedList = [...displayOps].sort((a, b) => a.operation_no - b.operation_no);
 
   return (
-    <div className="w-full h-full bg-white rounded-xl border border-slate-300 shadow-xs p-3 flex flex-col justify-between min-h-0">
+    <div className="bg-white rounded-xl border border-slate-300 p-3 flex flex-col h-full shadow-xs">
       <div className="flex items-center justify-between pb-1.5 border-b border-slate-200 mb-2 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
-          <h3 className="text-xs lg:text-sm font-black text-slate-900 uppercase tracking-wide">
-            Critical Operations &bull; {selectedHour}{suffix} Hour Performance
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-700"></span>
+          <h3 className="text-xs lg:text-sm font-black text-slate-900 uppercase tracking-wider">
+            Critical Operations Output ({selectedHour}{suffix} Hour)
           </h3>
         </div>
-        <span className="text-[10px] font-bold text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
-          {sortedList.length} Active Operators
+        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+          {sortedList.length} Monitored
         </span>
       </div>
 
       {sortedList.length === 0 ? (
-        <div className="py-6 text-center text-slate-400 font-medium italic text-xs">
+        <div className="flex-1 flex items-center justify-center text-xs text-slate-400 font-semibold italic">
           No critical operations logged for {selectedHour}{suffix} Hour.
         </div>
       ) : (
@@ -45,12 +46,27 @@ export const CriticalOperationsChart: React.FC<CriticalOperationsChartProps> = (
             const target = item.target || 35;
             const production = item.production || 0;
             const efficiency = target > 0 ? Math.round((production / target) * 100) : 0;
-            const isMet = production >= target;
+            const isAhead = production > target;
+            const isEqual = production === target;
+
+            let cardBg = 'bg-rose-50/90 border-rose-300';
+            let badgeBg = 'bg-rose-100 text-rose-800 border-rose-300';
+            let barColor = 'bg-rose-500';
+
+            if (isAhead) {
+              cardBg = 'bg-emerald-50/90 border-emerald-300';
+              badgeBg = 'bg-emerald-100 text-emerald-800 border-emerald-300';
+              barColor = 'bg-emerald-500';
+            } else if (isEqual) {
+              cardBg = 'bg-amber-50/90 border-amber-300';
+              badgeBg = 'bg-amber-100 text-amber-800 border-amber-300';
+              barColor = 'bg-amber-500';
+            }
 
             return (
               <div
                 key={item.id || idx}
-                className="bg-slate-50 border border-slate-200 rounded-lg p-2 flex flex-col justify-between min-h-0"
+                className={`${cardBg} border rounded-lg p-2 flex flex-col justify-between min-h-0 transition-colors`}
               >
                 <div className="flex items-start justify-between gap-1">
                   <div className="truncate">
@@ -69,13 +85,15 @@ export const CriticalOperationsChart: React.FC<CriticalOperationsChartProps> = (
                   </div>
 
                   <span
-                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-black industrial-digits flex-shrink-0 ${
-                      isMet
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                        : 'bg-rose-100 text-rose-800 border border-rose-300'
-                    }`}
+                    className={`inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded text-[10px] font-black industrial-digits flex-shrink-0 ${badgeBg}`}
                   >
-                    {isMet ? <Award className="w-2.5 h-2.5 text-emerald-600" /> : <AlertCircle className="w-2.5 h-2.5 text-rose-600" />}
+                    {isAhead ? (
+                      <Award className="w-2.5 h-2.5 text-emerald-600" />
+                    ) : isEqual ? (
+                      <Check className="w-2.5 h-2.5 text-amber-600" />
+                    ) : (
+                      <AlertCircle className="w-2.5 h-2.5 text-rose-600" />
+                    )}
                     {efficiency}%
                   </span>
                 </div>
@@ -90,9 +108,7 @@ export const CriticalOperationsChart: React.FC<CriticalOperationsChartProps> = (
                   </div>
                   <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
                     <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        isMet ? 'bg-emerald-500' : 'bg-rose-500'
-                      }`}
+                      className={`h-full rounded-full transition-all duration-500 ${barColor}`}
                       style={{ width: `${Math.min(efficiency, 100)}%` }}
                     />
                   </div>

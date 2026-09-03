@@ -32,7 +32,7 @@ export const DowntimeSummaryEditor: React.FC<DowntimeSummaryEditorProps> = ({
   });
 
   const handleCellChange = (category: DowntimeCategory, hour: number, val: string) => {
-    const mins = Math.max(0, parseInt(val, 10) || 0);
+    const mins = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
 
     // Update or insert item
     const existingIndex = downtimeSummary.findIndex(
@@ -120,7 +120,7 @@ export const DowntimeSummaryEditor: React.FC<DowntimeSummaryEditorProps> = ({
                         <input
                           type="number"
                           min="0"
-                          value={val || ''}
+                          value={val === 0 ? '' : val}
                           placeholder="0"
                           onChange={(e) => handleCellChange(cat, hourNum, e.target.value)}
                           className="w-16 px-1.5 py-1 text-center bg-white border border-slate-300 rounded font-semibold text-slate-900 industrial-digits focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"

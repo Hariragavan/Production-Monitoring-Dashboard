@@ -320,10 +320,11 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
                       <div className="flex items-center justify-center gap-1.5">
                         <input
                           type="number"
-                          min="1"
-                          value={item.minutes || ''}
+                          min="0"
+                          value={item.minutes === 0 ? '' : item.minutes}
+                          placeholder="0"
                           onChange={(e) =>
-                            handleUpdateField(item.id, 'minutes', Math.max(1, parseInt(e.target.value, 10) || 0))
+                            handleUpdateField(item.id, 'minutes', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
                           }
                           className="w-18 px-2 py-1.5 text-center bg-white border border-rose-400 rounded-md font-black text-rose-900 industrial-digits text-sm focus:ring-2 focus:ring-rose-500 outline-none"
                         />

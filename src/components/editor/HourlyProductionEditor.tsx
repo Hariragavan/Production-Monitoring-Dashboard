@@ -24,7 +24,7 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
   });
 
   const handleCellChange = (hourNum: number, field: 'input_available' | 'target' | 'actual', val: string) => {
-    const num = Math.max(0, parseInt(val, 10) || 0);
+    const num = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
     const updated = hoursData.map(row => {
       if (row.hour === hourNum) {
         return { ...row, [field]: num };
@@ -86,7 +86,8 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={row.input_available}
+                      value={row.input_available === 0 ? '' : row.input_available}
+                      placeholder="0"
                       onChange={(e) => handleCellChange(row.hour, 'input_available', e.target.value)}
                       className="w-28 px-2.5 py-1.5 bg-white border border-slate-300 rounded font-semibold text-slate-800 industrial-digits focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                     />
@@ -97,7 +98,8 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={row.target}
+                      value={row.target === 0 ? '' : row.target}
+                      placeholder="0"
                       onChange={(e) => handleCellChange(row.hour, 'target', e.target.value)}
                       className="w-28 px-2.5 py-1.5 bg-white border border-slate-300 rounded font-semibold text-slate-800 industrial-digits focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                     />
@@ -108,7 +110,8 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
                     <input
                       type="number"
                       min="0"
-                      value={row.actual}
+                      value={row.actual === 0 ? '' : row.actual}
+                      placeholder="0"
                       onChange={(e) => handleCellChange(row.hour, 'actual', e.target.value)}
                       className="w-28 px-2.5 py-1.5 bg-white border border-slate-300 rounded font-bold text-slate-950 industrial-digits focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none"
                     />

@@ -1,11 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardHeader } from '../components/dashboard/DashboardHeader';
-import { ProductionSummaryKpi } from '../components/dashboard/ProductionSummaryKpi';
 import { HourlyProductionChart } from '../components/dashboard/HourlyProductionChart';
-import { CriticalOperationsChart } from '../components/dashboard/CriticalOperationsChart';
-import { DowntimeDistributionChart } from '../components/dashboard/DowntimeDistributionChart';
-import { HourlyProductionTable } from '../components/dashboard/HourlyProductionTable';
 import { CriticalOperationsTable } from '../components/dashboard/CriticalOperationsTable';
 import { DowntimeSummaryTable } from '../components/dashboard/DowntimeSummaryTable';
 import { DowntimeDetailsTable } from '../components/dashboard/DowntimeDetailsTable';
@@ -19,8 +15,7 @@ export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
   const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
-  const [selectedHour, setSelectedHour] = useState<number>(4); // Default to current 4th hour
-  const [viewMode, setViewMode] = useState<'charts' | 'table'>('table'); // Table view as default
+  const [selectedHour] = useState<number>(4); // Default to current 4th hour
   const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
@@ -78,75 +73,45 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="h-screen w-screen max-h-screen overflow-hidden bg-slate-100 flex flex-col justify-between text-slate-900 select-none">
-      {/* Top Header Bar with Charts/Table Switcher & Lane Dropdown */}
+      {/* Top Header Bar with Centered Date Navigation (Excludes Sunday) & Lane Controls */}
       <DashboardHeader
         productionDate={selectedDate}
         supervisorName={data.day?.supervisor_name || 'Supervisor'}
         supervisorId={data.day?.supervisor_id}
-        selectedHour={selectedHour}
-        onHourChange={setSelectedHour}
         selectedLane={selectedLane}
         availableLanes={availableLanes}
         onLaneChange={setSelectedLane}
         onDateChange={setSelectedDate}
         onEditClick={handleEditClick}
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
       />
 
-      {/* Main Single-Screen TV Container (Zero Scroll in Charts mode, neat layout in Table mode) */}
-      <main className="flex-1 w-full max-w-[1920px] mx-auto px-3 py-2 min-h-0 overflow-hidden flex flex-col gap-2">
+      {/* Main Single-Page Unified Container (Optimized to fit TV screen) */}
+      <main className="flex-1 w-full max-w-[1920px] mx-auto px-2.5 py-1.5 min-h-0 overflow-y-auto flex flex-col gap-2">
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
             <RefreshCw className="w-10 h-10 text-cyan-700 animate-spin" />
             <p className="text-sm font-bold text-slate-600 tracking-wider uppercase">
               Loading Live TV Dashboard...
             </p>
           </div>
-        ) : viewMode === 'charts' ? (
-          /* CHARTS VIEW MODE */
+        ) : (
           <>
-            {/* ROW 1: 4 Compact KPI Overview Cards (Current Hour Metrics) */}
-            <ProductionSummaryKpi
-              hourly={data.hourly}
-              downtimeSummary={data.downtimeSummary}
-              selectedHour={selectedHour}
-            />
-
-            {/* ROW 2: Hourly Production Bar Chart (Shift Progression with selected hour highlighted) */}
-            <div className="flex-[1.2] min-h-0 w-full">
+            {/* 1. TOP: Hourly Output vs Target Progression Chart (Sleek TV fit) */}
+            <div className="w-full flex-shrink-0 h-[180px]">
               <HourlyProductionChart hourly={data.hourly} selectedHour={selectedHour} />
             </div>
 
-            {/* ROW 3: Critical Operations (Filtered for selected hour) & Downtime Breakdown (Filtered for selected hour) */}
-            <div className="flex-1 min-h-0 w-full grid grid-cols-1 lg:grid-cols-12 gap-2.5">
-              <div className="lg:col-span-6 h-full min-h-0">
-                <CriticalOperationsChart operations={data.criticalOperations} selectedHour={selectedHour} />
-              </div>
-              <div className="lg:col-span-6 h-full min-h-0">
-                <DowntimeDistributionChart
-                  downtimeSummary={data.downtimeSummary}
-                  downtimeDetails={data.downtimeDetails}
-                  selectedHour={selectedHour}
-                />
-              </div>
+            {/* 2. Critical Operations Performance Table (Directly after the chart) */}
+            <div className="w-full flex-shrink-0">
+              <CriticalOperationsTable operations={data.criticalOperations} />
             </div>
-          </>
-        ) : (
-          /* WHOLE TABLE DATA FORMAT VIEW MODE */
-          <div className="flex-1 w-full min-h-0 overflow-y-auto space-y-3 pr-1">
-            {/* 1. Complete 10-Hour Production Schedule Table */}
-            <HourlyProductionTable hourly={data.hourly} />
 
-            {/* 2. Complete Critical Operations Performance Table */}
-            <CriticalOperationsTable operations={data.criticalOperations} />
-
-            {/* 3. Downtime Category Summary & Incident Details Tables */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 pb-3">
+            {/* 3. Downtime Summary & Incident Details Tables Side-by-Side (Shrunk with Total) */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-1 flex-shrink-0">
               <DowntimeSummaryTable downtimeSummary={data.downtimeSummary} />
               <DowntimeDetailsTable downtimeDetails={data.downtimeDetails} />
             </div>
-          </div>
+          </>
         )}
       </main>
 
@@ -159,12 +124,6 @@ export const DashboardPage: React.FC = () => {
           </span>
           <span className="text-slate-300">|</span>
           <span className="text-[#0f3852] font-bold">Active Lane: {selectedLane}</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-amber-700 font-bold">Active View: Hour {selectedHour}</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-cyan-800 font-bold uppercase tracking-wider">
-            Mode: {viewMode === 'charts' ? 'Visual Charts' : 'Full Tabular Data'}
-          </span>
         </div>
         <div className="flex items-center gap-3">
           <span>Date: <strong className="text-slate-700">{selectedDate}</strong></span>

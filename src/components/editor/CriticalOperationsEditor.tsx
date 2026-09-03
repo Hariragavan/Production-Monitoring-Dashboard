@@ -432,9 +432,12 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                     <td className="px-3 py-2.5 border-r border-slate-200 text-center bg-cyan-50/40">
                       <input
                         type="number"
-                        min="1"
-                        value={op.target || ''}
-                        onChange={(e) => handleUpdateField(op.id, 'target', Math.max(1, parseInt(e.target.value, 10) || 0))}
+                        min="0"
+                        value={op.target === 0 ? '' : op.target}
+                        placeholder="0"
+                        onChange={(e) =>
+                          handleUpdateField(op.id, 'target', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
+                        }
                         className="w-16 px-2 py-1.5 text-center bg-white border border-cyan-400 rounded-md font-black text-cyan-900 industrial-digits text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
                       />
                     </td>
@@ -444,9 +447,11 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                       <input
                         type="number"
                         min="0"
-                        value={op.production ?? ''}
+                        value={op.production === 0 ? '' : op.production}
                         placeholder="0"
-                        onChange={(e) => handleUpdateField(op.id, 'production', Math.max(0, parseInt(e.target.value, 10) || 0))}
+                        onChange={(e) =>
+                          handleUpdateField(op.id, 'production', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
+                        }
                         className={`w-20 px-2.5 py-1.5 text-center rounded-md font-black text-sm industrial-digits outline-none transition-all ${
                           prod === 0
                             ? 'bg-white border border-slate-300 text-slate-400'
