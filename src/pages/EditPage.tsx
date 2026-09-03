@@ -1,0 +1,512 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import {
+  fetchDashboardData,
+  saveDashboardData,
+  getAvailableLanes,
+  addAvailableLane,
+  deleteAvailableLane,
+  getAvailableSupervisors,
+  addAvailableSupervisor,
+  getLaneSupervisor,
+  setLaneSupervisor,
+  type SupervisorItem,
+} from '../lib/dataService';
+import type { DashboardData } from '../types';
+import { INITIAL_DEMO_DATA } from '../lib/seedData';
+import { BasicInfoEditor } from '../components/editor/BasicInfoEditor';
+import { HourlyProductionEditor } from '../components/editor/HourlyProductionEditor';
+import { CriticalOperationsEditor } from '../components/editor/CriticalOperationsEditor';
+import { DowntimeSummaryEditor } from '../components/editor/DowntimeSummaryEditor';
+import { DowntimeDetailsEditor } from '../components/editor/DowntimeDetailsEditor';
+import {
+  Tv,
+  Save,
+  LogOut,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Calendar,
+  Clock,
+  Sliders,
+  AlertTriangle,
+  Users,
+  Layers,
+  UserCheck,
+} from 'lucide-react';
+
+type TabKey = 'basic' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
+
+export const EditPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
+
+  const [activeTab, setActiveTab] = useState<TabKey>('basic');
+  const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
+  const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
+  const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
+  const [availableSupervisors, setAvailableSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
+  const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Quick Add Supervisor state
+  const [quickAddSupOpen, setQuickAddSupOpen] = useState(false);
+  const [quickSupName, setQuickSupName] = useState('');
+  const [quickSupId, setQuickSupId] = useState('');
+
+  // Save feedback state
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [saveMessage, setSaveMessage] = useState<string>('');
+
+  // Redirect if unauthenticated
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, authLoading, navigate]);
+
+  // Real-time listener for lanes update
+  useEffect(() => {
+    const handleLanesUpdated = (e: any) => {
+      if (e.detail?.lanes) {
+        setAvailableLanes(e.detail.lanes);
+      }
+    };
+    window.addEventListener('production-lanes-updated', handleLanesUpdated);
+    return () => window.removeEventListener('production-lanes-updated', handleLanesUpdated);
+  }, []);
+
+  // Real-time listener for supervisors update
+  useEffect(() => {
+    const handleSupervisorsUpdated = (e: any) => {
+      if (e.detail?.supervisors) {
+        setAvailableSupervisors(e.detail.supervisors);
+      }
+    };
+    window.addEventListener('production-supervisors-updated', handleSupervisorsUpdated);
+    return () => window.removeEventListener('production-supervisors-updated', handleSupervisorsUpdated);
+  }, []);
+
+  // Fetch data whenever selectedDate or selectedLane changes
+  useEffect(() => {
+    let isMounted = true;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const fetched = await fetchDashboardData(selectedDate, selectedLane);
+        if (isMounted) {
+          setData(fetched);
+        }
+      } catch (err) {
+        console.error('Failed to load data for edit:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    load();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedDate, selectedLane]);
+
+  // Handle Save
+  const handleSave = async () => {
+    setSaveStatus('saving');
+    setSaveMessage('Saving changes to Supabase...');
+
+    try {
+      const dataToSave = {
+        ...data,
+        day: {
+          ...data.day,
+          lane_name: selectedLane,
+        },
+      };
+      const result = await saveDashboardData(dataToSave);
+      if (result.success) {
+        setSaveStatus('success');
+        setSaveMessage(result.warning || '✓ Changes saved successfully');
+        setTimeout(() => {
+          setSaveStatus('idle');
+          setSaveMessage('');
+        }, 5000);
+      } else {
+        setSaveStatus('error');
+        setSaveMessage(`✕ Failed to save changes: ${result.error}`);
+      }
+    } catch (err: any) {
+      setSaveStatus('error');
+      setSaveMessage(`✕ Failed to save changes: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  if (authLoading || (!isAuthenticated && !authLoading)) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+        <Loader2 className="w-8 h-8 text-cyan-400 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-100 flex flex-col">
+      {/* Top Header */}
+      <header className="bg-[#0f3852] text-white px-6 py-3.5 shadow-md border-b border-cyan-500/30 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-cyan-600/30 border border-cyan-400/40 flex items-center justify-center text-cyan-300">
+            <Sliders className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black uppercase tracking-tight">Production Data Editor</h1>
+            <p className="text-xs text-cyan-200/80">
+              Manage shift targets, hourly output, operations, lanes, and floor downtime
+            </p>
+          </div>
+        </div>
+
+        {/* Global Action Buttons */}
+        <div className="flex items-center gap-2.5">
+          {/* Back to Live Dashboard */}
+          <button
+            onClick={() => navigate('/dashboard')}
+            id="btn-nav-dashboard"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg text-xs font-bold border border-slate-600 transition active:scale-95 cursor-pointer"
+          >
+            <Tv className="w-4 h-4 text-cyan-400" />
+            <span>Dashboard</span>
+          </button>
+
+          {/* Save Changes Button */}
+          <button
+            onClick={handleSave}
+            id="btn-save-changes"
+            disabled={saveStatus === 'saving'}
+            className="inline-flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase tracking-wider shadow-md hover:shadow-emerald-600/30 transition active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            {saveStatus === 'saving' ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                <span>Saving...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 text-white" />
+                <span>Save Changes</span>
+              </>
+            )}
+          </button>
+
+          {/* Logout */}
+          <button
+            onClick={handleLogout}
+            id="btn-logout"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-rose-900/80 hover:bg-rose-800 text-rose-200 hover:text-white rounded-lg text-xs font-bold border border-rose-700 transition active:scale-95 cursor-pointer"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Logout</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Save Notification Banner */}
+      {saveStatus === 'success' && (
+        <div className="bg-emerald-600 text-white px-6 py-2.5 text-xs font-black flex items-center justify-center gap-2 shadow-inner animate-in fade-in duration-200">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{saveMessage}</span>
+        </div>
+      )}
+      {saveStatus === 'error' && (
+        <div className="bg-rose-600 text-white px-6 py-2.5 text-xs font-black flex items-center justify-center gap-2 shadow-inner animate-in fade-in duration-200">
+          <XCircle className="w-4 h-4" />
+          <span>{saveMessage}</span>
+        </div>
+      )}
+
+      {/* Editor Body */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-4">
+        {/* ALL-TABS PERSISTENT SELECTOR: Select Lane & Supervisor Across All Tabs */}
+        <div className="bg-white border border-slate-300 rounded-xl p-3.5 shadow-xs space-y-2.5">
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+            {/* Left: Interactive Lane Buttons */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-black text-[#0f3852] uppercase tracking-wider">
+                <Layers className="w-4 h-4 text-cyan-700" />
+                <span>Editing Lane:</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {availableLanes.map((lane) => {
+                  const isSelected = selectedLane === lane;
+                  const laneSup = getLaneSupervisor(lane);
+
+                  return (
+                    <button
+                      key={lane}
+                      type="button"
+                      onClick={() => {
+                        setSelectedLane(lane);
+                        setData((prev) => ({
+                          ...prev,
+                          day: {
+                            ...prev.day,
+                            lane_name: lane,
+                            supervisor_name: laneSup.name,
+                            supervisor_id: laneSup.id,
+                          },
+                        }));
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-[#134665] text-white shadow-xs ring-2 ring-cyan-500/50'
+                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                      }`}
+                    >
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300" />}
+                      <span>{lane}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Right: Supervisor Selector & ID (Dedicated to Selected Lane) */}
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-1.5 text-xs font-black text-slate-700 uppercase tracking-wider">
+                <UserCheck className="w-4 h-4 text-cyan-700" />
+                <span>{selectedLane} Supervisor:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={data.day?.supervisor_name || 'Supervisor'}
+                  onChange={(e) => {
+                    const supName = e.target.value;
+                    const found = availableSupervisors.find((s) => s.name === supName);
+                    const supId = found ? found.id : data.day?.supervisor_id || 'SUP-01';
+
+                    // Save mapping specifically for this lane!
+                    setLaneSupervisor(selectedLane, { name: supName, id: supId });
+
+                    setData((prev) => ({
+                      ...prev,
+                      day: {
+                        ...prev.day,
+                        supervisor_name: supName,
+                        supervisor_id: supId,
+                      },
+                    }));
+                  }}
+                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer"
+                >
+                  {availableSupervisors.map((s) => (
+                    <option key={s.id} value={s.name}>
+                      {s.name} ({s.id})
+                    </option>
+                  ))}
+                  {!availableSupervisors.some((s) => s.name === data.day?.supervisor_name) && data.day?.supervisor_name && (
+                    <option value={data.day.supervisor_name}>
+                      {data.day.supervisor_name} ({data.day.supervisor_id || 'SUP-01'})
+                    </option>
+                  )}
+                </select>
+                <span className="text-xs font-mono font-bold bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-1 rounded">
+                  {data.day?.supervisor_id || 'SUP-01'}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setQuickAddSupOpen(!quickAddSupOpen)}
+                  className="px-2 py-1 text-xs font-bold text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-300 rounded-md transition cursor-pointer"
+                  title="Add New Supervisor"
+                >
+                  {quickAddSupOpen ? '✕' : '+ New'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Inline Quick Supervisor Add Bar */}
+          {quickAddSupOpen && (
+            <div className="pt-2 border-t border-slate-200 flex flex-col sm:flex-row items-end gap-2 bg-cyan-50/50 p-2.5 rounded-lg">
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">New Supervisor Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. M. K. PATEL"
+                  value={quickSupName}
+                  onChange={(e) => setQuickSupName(e.target.value)}
+                  className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-900 uppercase outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+              <div className="w-36">
+                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Supervisor ID</label>
+                <input
+                  type="text"
+                  placeholder="e.g. SUP-05"
+                  value={quickSupId}
+                  onChange={(e) => setQuickSupId(e.target.value)}
+                  className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold uppercase outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = quickSupName.trim();
+                  const id = quickSupId.trim().toUpperCase();
+                  if (!name || !id) return;
+                  const updated = addAvailableSupervisor({ name, id });
+                  setAvailableSupervisors(updated);
+                  setLaneSupervisor(selectedLane, { name, id });
+                  setData((prev) => ({
+                    ...prev,
+                    day: { ...prev.day, supervisor_name: name, supervisor_id: id },
+                  }));
+                  setQuickSupName('');
+                  setQuickSupId('');
+                  setQuickAddSupOpen(false);
+                }}
+                className="px-3 py-1 bg-cyan-700 hover:bg-cyan-800 text-white rounded text-xs font-bold transition cursor-pointer"
+              >
+                Register &amp; Assign to {selectedLane}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex border-b border-slate-300 bg-white rounded-t-xl px-4 pt-2 shadow-xs gap-2 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab('basic')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+              activeTab === 'basic'
+                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>TAB 1: Basic Info, Lanes &amp; Employees</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('hourly')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+              activeTab === 'hourly'
+                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>TAB 2: Hourly Production</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('operations')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+              activeTab === 'operations'
+                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>TAB 3: Critical Operations</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('downtime-summary')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+              activeTab === 'downtime-summary'
+                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span>TAB 4: Downtime Summary</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('downtime-details')}
+            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+              activeTab === 'downtime-details'
+                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            <span>TAB 5: Downtime Details</span>
+          </button>
+        </div>
+
+        {/* Tab Content Container */}
+        <div>
+          {loading ? (
+            <div className="p-12 bg-white rounded-xl border border-slate-300 text-center flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+              <p className="text-sm font-bold text-slate-600">Loading production records...</p>
+            </div>
+          ) : (
+            <>
+              {activeTab === 'basic' && (
+                <BasicInfoEditor
+                  unitName={data.unit.unit_name}
+                  day={data.day}
+                  availableLanes={availableLanes}
+                  selectedLane={selectedLane}
+                  onLaneChange={(newLane) => {
+                    setSelectedLane(newLane);
+                    setData((prev) => ({ ...prev, day: { ...prev.day, lane_name: newLane } }));
+                  }}
+                  onAddLane={(newLane) => {
+                    const updated = addAvailableLane(newLane);
+                    setAvailableLanes(updated);
+                    setSelectedLane(newLane);
+                  }}
+                  onDeleteLane={(laneToDelete) => {
+                    const updated = deleteAvailableLane(laneToDelete);
+                    setAvailableLanes(updated);
+                    if (selectedLane === laneToDelete) {
+                      setSelectedLane(updated[0] || 'Lane 01');
+                    }
+                  }}
+                  onDateChange={setSelectedDate}
+                  onChange={(partial) => setData({ ...data, day: { ...data.day, ...partial } })}
+                />
+              )}
+
+              {activeTab === 'hourly' && (
+                <HourlyProductionEditor
+                  hourly={data.hourly}
+                  onChange={(updatedHourly) => setData({ ...data, hourly: updatedHourly })}
+                />
+              )}
+
+              {activeTab === 'operations' && (
+                <CriticalOperationsEditor
+                  operations={data.criticalOperations}
+                  onChange={(updatedOps) => setData({ ...data, criticalOperations: updatedOps })}
+                />
+              )}
+
+              {activeTab === 'downtime-summary' && (
+                <DowntimeSummaryEditor
+                  downtimeSummary={data.downtimeSummary}
+                  onChange={(updatedDs) => setData({ ...data, downtimeSummary: updatedDs })}
+                />
+              )}
+
+              {activeTab === 'downtime-details' && (
+                <DowntimeDetailsEditor
+                  downtimeDetails={data.downtimeDetails}
+                  onChange={(updatedDd) => setData({ ...data, downtimeDetails: updatedDd })}
+                />
+              )}
+            </>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+};
