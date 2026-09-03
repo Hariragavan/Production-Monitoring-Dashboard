@@ -50,6 +50,17 @@ export const DashboardPage: React.FC = () => {
     return () => window.removeEventListener('production-lanes-updated', handleLanesUpdated);
   }, []);
 
+  // Real-time listener for local/cross-tab data updates
+  useEffect(() => {
+    const handleDataUpdated = (e: any) => {
+      if (!e.detail?.date || e.detail.date === selectedDate) {
+        loadData(false);
+      }
+    };
+    window.addEventListener('production-data-updated', handleDataUpdated);
+    return () => window.removeEventListener('production-data-updated', handleDataUpdated);
+  }, [selectedDate, loadData]);
+
   // Real-time listener + fallback polling for data changes
   useEffect(() => {
     const unsubscribe = subscribeToDashboardChanges(data.day?.id || `${selectedDate}-${selectedLane}`, () => {

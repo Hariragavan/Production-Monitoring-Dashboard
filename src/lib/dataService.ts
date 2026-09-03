@@ -234,6 +234,7 @@ function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
     try {
       const parsed = JSON.parse(stored);
       if (parsed && parsed.day) {
+        parsed.day.production_date = date;
         parsed.day.lane_name = lane;
         // Always assign the dedicated supervisor for this lane
         parsed.day.supervisor_name = laneSup.name;
@@ -245,9 +246,10 @@ function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
     }
   }
 
-  // Get rich, lane-specific initial data for this lane
+  // Get rich, lane-specific initial data for this lane and date
   const initialData = getSeedDataForLane(lane, date);
   if (initialData && initialData.day) {
+    initialData.day.production_date = date;
     initialData.day.lane_name = lane;
     initialData.day.supervisor_name = laneSup.name;
     initialData.day.supervisor_id = laneSup.id;
@@ -259,19 +261,43 @@ function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
 // Save local storage data
 function saveLocalData(date: string, lane: string, data: DashboardData): void {
   const key = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
-  if (data.day?.supervisor_name) {
+  const toStore: DashboardData = {
+    ...data,
+    day: {
+      ...data.day,
+      production_date: date,
+      lane_name: lane,
+    },
+  };
+  if (toStore.day?.supervisor_name) {
     setLaneSupervisor(lane, {
-      name: data.day.supervisor_name,
-      id: data.day.supervisor_id || 'SUP-01',
+      name: toStore.day.supervisor_name,
+      id: toStore.day.supervisor_id || 'SUP-01',
     });
   }
-  localStorage.setItem(key, JSON.stringify(data));
+  localStorage.setItem(key, JSON.stringify(toStore));
   // Broadcast change across tabs and inside current window
   window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane } }));
 }
 
 // Fetch dashboard data (Supabase or Local Fallback)
 export async function fetchDashboardData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): Promise<DashboardData> {
+  // Check local storage first for user-saved data for this date + lane
+  const localKey = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
+  const storedLocal = localStorage.getItem(localKey);
+  if (storedLocal) {
+    try {
+      const parsed = JSON.parse(storedLocal);
+      if (parsed && parsed.day) {
+        parsed.day.production_date = date;
+        parsed.day.lane_name = lane;
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   if (!isSupabaseConfigured || !supabase) {
     return getLocalData(date, lane);
   }
@@ -401,7 +427,7 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
     };
   } catch (err) {
     console.error('Supabase query error, fallback to local storage:', err);
-    return getLocalData(date);
+    return getLocalData(date, lane);
   }
 }
 

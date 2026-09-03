@@ -258,18 +258,84 @@ export const INITIAL_DEMO_DATA: DashboardData = {
   ],
 };
 
-// Generates distinct lane-specific seed data for different lanes
+// Generates distinct lane-specific and date-specific seed data
 export function getSeedDataForLane(lane: string, date = '2026-09-01'): DashboardData {
-  if (lane === 'Lane 01') {
+  // Demo Shift data for 2026-09-01 Lane 01
+  if (lane === 'Lane 01' && date === '2026-09-01') {
     return {
       ...INITIAL_DEMO_DATA,
       day: {
         ...INITIAL_DEMO_DATA.day,
-        production_date: date,
+        production_date: '2026-09-01',
         lane_name: 'Lane 01',
         supervisor_name: 'R. K. Sharma',
         supervisor_id: 'SUP-01',
       },
+    };
+  }
+
+  // If not the demo day, generate a clean, date-specific initial shift template
+  if (date !== '2026-09-01') {
+    const isL2 = lane === 'Lane 02';
+    const isL3 = lane === 'Lane 03';
+    const supName = isL2 ? 'P. Verma' : isL3 ? 'A. K. Das' : 'R. K. Sharma';
+    const supId = isL2 ? 'SUP-02' : isL3 ? 'SUP-03' : 'SUP-01';
+
+    return {
+      unit: { id: 'unit-01', unit_name: 'Unit 01' },
+      day: {
+        id: `day-${date}-${lane.replace(/\s+/g, '-').toLowerCase()}`,
+        unit_id: 'unit-01',
+        production_date: date,
+        shift: 'Shift 01',
+        supervisor_name: supName,
+        supervisor_id: supId,
+        lane_name: lane,
+      },
+      hourly: Array.from({ length: 10 }, (_, i) => ({
+        id: `h-${i + 1}-${date}-${lane}`,
+        hour: i + 1,
+        input_available: 200,
+        target: 150,
+        actual: 0,
+      })),
+      criticalOperations: [
+        // Operation 1: SLEEVE ATTACH (Sunil)
+        ...Array.from({ length: 10 }, (_, i) => ({
+          id: `co-1-${i + 1}-${date}`,
+          operation_no: 1,
+          operation_name: 'SLEEVE ATTACH',
+          worker_name: 'SUNIL',
+          worker_id: 'EMP-101',
+          hour: i + 1,
+          production: 0,
+          target: 45,
+        })),
+        // Operation 2: SIDE SEAM (Umesh)
+        ...Array.from({ length: 10 }, (_, i) => ({
+          id: `co-2-${i + 1}-${date}`,
+          operation_no: 2,
+          operation_name: 'SIDE SEAM',
+          worker_name: 'UMESH',
+          worker_id: 'EMP-103',
+          hour: i + 1,
+          production: 0,
+          target: 35,
+        })),
+        // Operation 3: NECK RIB ATTACH (Kailash)
+        ...Array.from({ length: 10 }, (_, i) => ({
+          id: `co-3-${i + 1}-${date}`,
+          operation_no: 3,
+          operation_name: 'NECK RIB ATTACH',
+          worker_name: 'KAILASH',
+          worker_id: 'EMP-107',
+          hour: i + 1,
+          production: 0,
+          target: 30,
+        })),
+      ],
+      downtimeSummary: [],
+      downtimeDetails: [],
     };
   }
 

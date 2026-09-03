@@ -8,7 +8,6 @@ import {
   addAvailableLane,
   deleteAvailableLane,
   getAvailableSupervisors,
-  addAvailableSupervisor,
   getLaneSupervisor,
   setLaneSupervisor,
   type SupervisorItem,
@@ -28,15 +27,22 @@ import {
   XCircle,
   Loader2,
   Calendar,
-  Clock,
+  ChevronLeft,
+  ChevronRight,
   Sliders,
-  AlertTriangle,
-  Users,
   Layers,
   UserCheck,
 } from 'lucide-react';
 
 type TabKey = 'basic' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
+
+// Local date formatter avoiding UTC shifts
+const formatLocalDate = (d: Date): string => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export const EditPage: React.FC = () => {
   const navigate = useNavigate();
@@ -49,11 +55,6 @@ export const EditPage: React.FC = () => {
   const [availableSupervisors, setAvailableSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
-
-  // Quick Add Supervisor state
-  const [quickAddSupOpen, setQuickAddSupOpen] = useState(false);
-  const [quickSupName, setQuickSupName] = useState('');
-  const [quickSupId, setQuickSupId] = useState('');
 
   // Save feedback state
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
@@ -110,23 +111,56 @@ export const EditPage: React.FC = () => {
     };
   }, [selectedDate, selectedLane]);
 
+  // Date Navigation Stepper (Excludes Sunday)
+  const handleStepDate = (direction: number) => {
+    const [y, m, d] = selectedDate.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    dateObj.setDate(dateObj.getDate() + direction);
+    if (dateObj.getDay() === 0) {
+      dateObj.setDate(dateObj.getDate() + (direction > 0 ? 1 : -1));
+    }
+    const cleanDate = formatLocalDate(dateObj);
+    setSelectedDate(cleanDate);
+  };
+
+  // Direct Date Picker Select (Excludes Sunday)
+  const handleDateSelect = (val: string) => {
+    if (!val) return;
+    const [y, m, d] = val.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    if (dateObj.getDay() === 0) {
+      dateObj.setDate(dateObj.getDate() + 1);
+    }
+    const cleanDate = formatLocalDate(dateObj);
+    setSelectedDate(cleanDate);
+  };
+
+  const handleToday = () => {
+    const today = new Date();
+    if (today.getDay() === 0) {
+      today.setDate(today.getDate() + 1);
+    }
+    setSelectedDate(formatLocalDate(today));
+  };
+
   // Handle Save
   const handleSave = async () => {
     setSaveStatus('saving');
-    setSaveMessage('Saving changes to Supabase...');
+    setSaveMessage(`Saving data for ${selectedLane} (${selectedDate})...`);
 
     try {
-      const dataToSave = {
+      const dataToSave: DashboardData = {
         ...data,
         day: {
           ...data.day,
+          production_date: selectedDate, // GUARANTEES IT SAVES IN THAT EXACT DATE!
           lane_name: selectedLane,
         },
       };
       const result = await saveDashboardData(dataToSave);
       if (result.success) {
         setSaveStatus('success');
-        setSaveMessage(result.warning || '✓ Changes saved successfully');
+        setSaveMessage(result.warning || `✓ Changes saved successfully for ${selectedLane} on ${selectedDate}`);
         setTimeout(() => {
           setSaveStatus('idle');
           setSaveMessage('');
@@ -230,10 +264,10 @@ export const EditPage: React.FC = () => {
 
       {/* Editor Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-4">
-        {/* ALL-TABS PERSISTENT SELECTOR: Select Lane & Supervisor Across All Tabs */}
+        {/* ALL-TABS PERSISTENT SELECTOR: Select Lane, Date, & Supervisor Across All Tabs */}
         <div className="bg-white border border-slate-300 rounded-xl p-3.5 shadow-xs space-y-2.5">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-            {/* Left: Interactive Lane Buttons */}
+          <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
+            {/* 1. Left: Interactive Lane Buttons */}
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="flex items-center gap-1.5 text-xs font-black text-[#0f3852] uppercase tracking-wider">
                 <Layers className="w-4 h-4 text-cyan-700" />
@@ -274,11 +308,48 @@ export const EditPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Right: Supervisor Selector & ID (Dedicated to Selected Lane) */}
+            {/* 2. Center: Dedicated Date Selection Controls (Excludes Sunday) */}
+            <div className="flex items-center gap-1.5 bg-[#0f3852] text-white px-3 py-1.5 rounded-lg border border-cyan-500/50 shadow-inner">
+              <Calendar className="w-4 h-4 text-cyan-300 flex-shrink-0" />
+              <span className="text-xs font-black text-cyan-300 uppercase tracking-wider">Date:</span>
+              <button
+                type="button"
+                onClick={() => handleStepDate(-1)}
+                title="Previous Working Day (Skips Sunday)"
+                className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => handleDateSelect(e.target.value)}
+                className="bg-slate-900 text-white font-black text-xs rounded px-2 py-0.5 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer [color-scheme:dark]"
+                title="Select Date to Edit & Save"
+              />
+              <button
+                type="button"
+                onClick={() => handleStepDate(1)}
+                title="Next Working Day (Skips Sunday)"
+                className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleToday}
+                title="Set to Current Working Day"
+                className="px-2 py-0.5 text-[11px] font-bold bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded border border-slate-600 transition cursor-pointer ml-1"
+              >
+                Today
+              </button>
+            </div>
+
+            {/* 3. Right: Dedicated Supervisor for Selected Lane */}
             <div className="flex items-center gap-2.5">
               <div className="flex items-center gap-1.5 text-xs font-black text-slate-700 uppercase tracking-wider">
                 <UserCheck className="w-4 h-4 text-cyan-700" />
-                <span>{selectedLane} Supervisor:</span>
+                <span>Supervisor:</span>
               </div>
               <div className="flex items-center gap-2">
                 <select
@@ -288,7 +359,6 @@ export const EditPage: React.FC = () => {
                     const found = availableSupervisors.find((s) => s.name === supName);
                     const supId = found ? found.id : data.day?.supervisor_id || 'SUP-01';
 
-                    // Save mapping specifically for this lane!
                     setLaneSupervisor(selectedLane, { name: supName, id: supId });
 
                     setData((prev) => ({
@@ -316,196 +386,151 @@ export const EditPage: React.FC = () => {
                 <span className="text-xs font-mono font-bold bg-cyan-50 text-cyan-800 border border-cyan-200 px-2 py-1 rounded">
                   {data.day?.supervisor_id || 'SUP-01'}
                 </span>
-
-                <button
-                  type="button"
-                  onClick={() => setQuickAddSupOpen(!quickAddSupOpen)}
-                  className="px-2 py-1 text-xs font-bold text-cyan-800 bg-cyan-50 hover:bg-cyan-100 border border-cyan-300 rounded-md transition cursor-pointer"
-                  title="Add New Supervisor"
-                >
-                  {quickAddSupOpen ? '✕' : '+ New'}
-                </button>
               </div>
             </div>
           </div>
-
-          {/* Inline Quick Supervisor Add Bar */}
-          {quickAddSupOpen && (
-            <div className="pt-2 border-t border-slate-200 flex flex-col sm:flex-row items-end gap-2 bg-cyan-50/50 p-2.5 rounded-lg">
-              <div className="flex-1">
-                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">New Supervisor Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. M. K. PATEL"
-                  value={quickSupName}
-                  onChange={(e) => setQuickSupName(e.target.value)}
-                  className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-bold text-slate-900 uppercase outline-none focus:ring-2 focus:ring-cyan-500"
-                />
-              </div>
-              <div className="w-36">
-                <label className="block text-[10px] font-bold text-slate-600 uppercase mb-0.5">Supervisor ID</label>
-                <input
-                  type="text"
-                  placeholder="e.g. SUP-05"
-                  value={quickSupId}
-                  onChange={(e) => setQuickSupId(e.target.value)}
-                  className="w-full px-2.5 py-1 bg-white border border-slate-300 rounded text-xs font-mono font-bold uppercase outline-none focus:ring-2 focus:ring-cyan-500"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const name = quickSupName.trim();
-                  const id = quickSupId.trim().toUpperCase();
-                  if (!name || !id) return;
-                  const updated = addAvailableSupervisor({ name, id });
-                  setAvailableSupervisors(updated);
-                  setLaneSupervisor(selectedLane, { name, id });
-                  setData((prev) => ({
-                    ...prev,
-                    day: { ...prev.day, supervisor_name: name, supervisor_id: id },
-                  }));
-                  setQuickSupName('');
-                  setQuickSupId('');
-                  setQuickAddSupOpen(false);
-                }}
-                className="px-3 py-1 bg-cyan-700 hover:bg-cyan-800 text-white rounded text-xs font-bold transition cursor-pointer"
-              >
-                Register &amp; Assign to {selectedLane}
-              </button>
-            </div>
-          )}
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-300 bg-white rounded-t-xl px-4 pt-2 shadow-xs gap-2 overflow-x-auto">
+        {/* Tab Navigation */}
+        <div className="bg-white rounded-xl border border-slate-300 p-1.5 shadow-xs flex flex-wrap gap-1">
           <button
             onClick={() => setActiveTab('basic')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'basic'
-                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Calendar className="w-4 h-4" />
-            <span>TAB 1: Basic Info, Lanes &amp; Employees</span>
+            <span>Basic Info</span>
           </button>
-
           <button
             onClick={() => setActiveTab('hourly')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'hourly'
-                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Clock className="w-4 h-4" />
-            <span>TAB 2: Hourly Production</span>
+            <span>Hourly Schedule</span>
           </button>
-
           <button
             onClick={() => setActiveTab('operations')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'operations'
-                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Users className="w-4 h-4" />
-            <span>TAB 3: Critical Operations</span>
+            <span>Critical Operations</span>
           </button>
-
           <button
             onClick={() => setActiveTab('downtime-summary')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'downtime-summary'
-                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <AlertTriangle className="w-4 h-4" />
-            <span>TAB 4: Downtime Summary</span>
+            <span>Downtime Matrix</span>
           </button>
-
           <button
             onClick={() => setActiveTab('downtime-details')}
-            className={`flex items-center gap-2 px-4 py-3 text-xs font-bold uppercase tracking-wider border-b-2 transition whitespace-nowrap cursor-pointer ${
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'downtime-details'
-                ? 'border-cyan-600 text-cyan-800 bg-cyan-50/50'
-                : 'border-transparent text-slate-600 hover:text-slate-900 hover:border-slate-300'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
             }`}
           >
-            <Sliders className="w-4 h-4" />
-            <span>TAB 5: Downtime Details</span>
+            <span>Downtime Incidents</span>
           </button>
         </div>
 
-        {/* Tab Content Container */}
-        <div>
-          {loading ? (
-            <div className="p-12 bg-white rounded-xl border border-slate-300 text-center flex flex-col items-center justify-center gap-3">
-              <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
-              <p className="text-sm font-bold text-slate-600">Loading production records...</p>
-            </div>
-          ) : (
-            <>
-              {activeTab === 'basic' && (
-                <BasicInfoEditor
-                  unitName={data.unit.unit_name}
-                  day={data.day}
-                  availableLanes={availableLanes}
-                  selectedLane={selectedLane}
-                  onLaneChange={(newLane) => {
-                    setSelectedLane(newLane);
-                    setData((prev) => ({ ...prev, day: { ...prev.day, lane_name: newLane } }));
-                  }}
-                  onAddLane={(newLane) => {
-                    const updated = addAvailableLane(newLane);
-                    setAvailableLanes(updated);
-                    setSelectedLane(newLane);
-                  }}
-                  onDeleteLane={(laneToDelete) => {
-                    const updated = deleteAvailableLane(laneToDelete);
-                    setAvailableLanes(updated);
-                    if (selectedLane === laneToDelete) {
-                      setSelectedLane(updated[0] || 'Lane 01');
-                    }
-                  }}
-                  onDateChange={setSelectedDate}
-                  onChange={(partial) => setData({ ...data, day: { ...data.day, ...partial } })}
-                />
-              )}
+        {/* Tab Content Panels */}
+        {loading ? (
+          <div className="bg-white p-12 rounded-xl border border-slate-300 shadow-xs flex flex-col items-center justify-center gap-3">
+            <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+            <span className="text-sm font-bold text-slate-500">Loading {selectedLane} data for {selectedDate}...</span>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {activeTab === 'basic' && (
+              <BasicInfoEditor
+                unitName={data.unit?.unit_name || 'Unit 01'}
+                day={data.day}
+                availableLanes={availableLanes}
+                selectedLane={selectedLane}
+                onLaneChange={setSelectedLane}
+                onAddLane={(lane) => {
+                  const updated = addAvailableLane(lane);
+                  setAvailableLanes(updated);
+                  setSelectedLane(lane);
+                }}
+                onDeleteLane={(lane) => {
+                  const updated = deleteAvailableLane(lane);
+                  setAvailableLanes(updated);
+                  if (selectedLane === lane && updated.length > 0) {
+                    setSelectedLane(updated[0]);
+                  }
+                }}
+                onChange={(updatedDay) => {
+                  setData((prev) => ({
+                    ...prev,
+                    day: { ...prev.day, ...updatedDay },
+                  }));
+                }}
+                onDateChange={handleDateSelect}
+              />
+            )}
 
-              {activeTab === 'hourly' && (
-                <HourlyProductionEditor
-                  hourly={data.hourly}
-                  onChange={(updatedHourly) => setData({ ...data, hourly: updatedHourly })}
-                />
-              )}
+            {activeTab === 'hourly' && (
+              <HourlyProductionEditor
+                hourly={data.hourly}
+                onChange={(updatedHourly) => {
+                  setData((prev) => ({
+                    ...prev,
+                    hourly: updatedHourly,
+                  }));
+                }}
+              />
+            )}
 
-              {activeTab === 'operations' && (
-                <CriticalOperationsEditor
-                  operations={data.criticalOperations}
-                  onChange={(updatedOps) => setData({ ...data, criticalOperations: updatedOps })}
-                />
-              )}
+            {activeTab === 'operations' && (
+              <CriticalOperationsEditor
+                operations={data.criticalOperations}
+                onChange={(updatedOps) => {
+                  setData((prev) => ({
+                    ...prev,
+                    criticalOperations: updatedOps,
+                  }));
+                }}
+              />
+            )}
 
-              {activeTab === 'downtime-summary' && (
-                <DowntimeSummaryEditor
-                  downtimeSummary={data.downtimeSummary}
-                  onChange={(updatedDs) => setData({ ...data, downtimeSummary: updatedDs })}
-                />
-              )}
+            {activeTab === 'downtime-summary' && (
+              <DowntimeSummaryEditor
+                downtimeSummary={data.downtimeSummary}
+                onChange={(updatedSummary) => {
+                  setData((prev) => ({
+                    ...prev,
+                    downtimeSummary: updatedSummary,
+                  }));
+                }}
+              />
+            )}
 
-              {activeTab === 'downtime-details' && (
-                <DowntimeDetailsEditor
-                  downtimeDetails={data.downtimeDetails}
-                  onChange={(updatedDd) => setData({ ...data, downtimeDetails: updatedDd })}
-                />
-              )}
-            </>
-          )}
-        </div>
+            {activeTab === 'downtime-details' && (
+              <DowntimeDetailsEditor
+                downtimeDetails={data.downtimeDetails}
+                onChange={(updatedDetails) => {
+                  setData((prev) => ({
+                    ...prev,
+                    downtimeDetails: updatedDetails,
+                  }));
+                }}
+              />
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
