@@ -1,6 +1,7 @@
 import React from 'react';
 import type { DowntimeSummaryItem, DowntimeCategory } from '../../types';
 import { CategoryDot } from '../common/StatusBadge';
+import { formatDuration } from '../../lib/dataService';
 
 interface DowntimeSummaryTableProps {
   downtimeSummary: DowntimeSummaryItem[];
@@ -120,7 +121,7 @@ export const DowntimeSummaryTable: React.FC<DowntimeSummaryTableProps> = ({ down
                       >
                         {hasValue ? (
                           <span className="text-slate-900 font-bold bg-amber-50/60 px-1 py-0.5 rounded border border-amber-200/50">
-                            {mins} Minutes
+                            {formatDuration(mins, 'short')}
                           </span>
                         ) : (
                           <span className="text-slate-300 font-normal">-</span>
@@ -132,7 +133,7 @@ export const DowntimeSummaryTable: React.FC<DowntimeSummaryTableProps> = ({ down
                   {/* Category Row Total */}
                   <td className="px-2 py-2 font-black text-slate-900 bg-slate-100/90 border-l border-slate-300 industrial-digits text-xs lg:text-sm">
                     {rowTotal > 0 ? (
-                      <span className="text-rose-700 font-black">{rowTotal} Min.</span>
+                      <span className="text-rose-700 font-black">{formatDuration(rowTotal, 'short')}</span>
                     ) : (
                       <span className="text-slate-400">0</span>
                     )}

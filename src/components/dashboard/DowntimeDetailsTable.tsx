@@ -1,6 +1,7 @@
 import React from 'react';
 import type { DowntimeDetailItem } from '../../types';
 import { CategoryDot } from '../common/StatusBadge';
+import { formatDuration } from '../../lib/dataService';
 
 interface DowntimeDetailsTableProps {
   downtimeDetails: DowntimeDetailItem[];
@@ -155,7 +156,7 @@ export const DowntimeDetailsTable: React.FC<DowntimeDetailsTableProps> = ({ down
                               {entry.workerName}
                             </span>
                             <span className="text-[11px] lg:text-xs font-black text-rose-700 industrial-digits">
-                              {entry.minutes < 10 ? `0${entry.minutes}` : entry.minutes} Min.
+                              {formatDuration(entry.minutes, 'short')}
                             </span>
                           </div>
                         </td>

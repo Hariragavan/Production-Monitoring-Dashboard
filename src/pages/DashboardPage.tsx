@@ -5,6 +5,10 @@ import { ProductionSummaryKpi } from '../components/dashboard/ProductionSummaryK
 import { HourlyProductionChart } from '../components/dashboard/HourlyProductionChart';
 import { CriticalOperationsChart } from '../components/dashboard/CriticalOperationsChart';
 import { DowntimeDistributionChart } from '../components/dashboard/DowntimeDistributionChart';
+import { HourlyProductionTable } from '../components/dashboard/HourlyProductionTable';
+import { CriticalOperationsTable } from '../components/dashboard/CriticalOperationsTable';
+import { DowntimeSummaryTable } from '../components/dashboard/DowntimeSummaryTable';
+import { DowntimeDetailsTable } from '../components/dashboard/DowntimeDetailsTable';
 import { fetchDashboardData, subscribeToDashboardChanges, getAvailableLanes } from '../lib/dataService';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { DashboardData } from '../types';
@@ -16,6 +20,7 @@ export const DashboardPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
   const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
   const [selectedHour, setSelectedHour] = useState<number>(4); // Default to current 4th hour
+  const [viewMode, setViewMode] = useState<'charts' | 'table'>('charts'); // Charts vs Table view
   const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
@@ -59,21 +64,21 @@ export const DashboardPage: React.FC = () => {
 
     const interval = setInterval(() => {
       loadData(false);
-    }, 30000);
+    }, 15000);
 
     return () => {
       unsubscribe();
       clearInterval(interval);
     };
-  }, [data.day?.id, selectedDate, selectedLane, loadData]);
+  }, [data.day?.id, loadData, selectedDate, selectedLane]);
 
   const handleEditClick = () => {
-    navigate('/login');
+    navigate('/edit');
   };
 
   return (
     <div className="h-screen w-screen max-h-screen overflow-hidden bg-slate-100 flex flex-col justify-between text-slate-900 select-none">
-      {/* Top Header Bar with Hour Dropdown & Lane Dropdown */}
+      {/* Top Header Bar with Charts/Table Switcher & Lane Dropdown */}
       <DashboardHeader
         productionDate={selectedDate}
         supervisorName={data.day?.supervisor_name || 'Supervisor'}
@@ -85,9 +90,11 @@ export const DashboardPage: React.FC = () => {
         onLaneChange={setSelectedLane}
         onDateChange={setSelectedDate}
         onEditClick={handleEditClick}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
       />
 
-      {/* Main Single-Screen TV Container (Zero Scroll) */}
+      {/* Main Single-Screen TV Container (Zero Scroll in Charts mode, neat layout in Table mode) */}
       <main className="flex-1 w-full max-w-[1920px] mx-auto px-3 py-2 min-h-0 overflow-hidden flex flex-col gap-2">
         {loading ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3">
@@ -96,7 +103,8 @@ export const DashboardPage: React.FC = () => {
               Loading Live TV Dashboard...
             </p>
           </div>
-        ) : (
+        ) : viewMode === 'charts' ? (
+          /* CHARTS VIEW MODE */
           <>
             {/* ROW 1: 4 Compact KPI Overview Cards (Current Hour Metrics) */}
             <ProductionSummaryKpi
@@ -124,6 +132,21 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
           </>
+        ) : (
+          /* WHOLE TABLE DATA FORMAT VIEW MODE */
+          <div className="flex-1 w-full min-h-0 overflow-y-auto space-y-3 pr-1">
+            {/* 1. Complete 10-Hour Production Schedule Table */}
+            <HourlyProductionTable hourly={data.hourly} />
+
+            {/* 2. Complete Critical Operations Performance Table */}
+            <CriticalOperationsTable operations={data.criticalOperations} />
+
+            {/* 3. Downtime Category Summary & Incident Details Tables */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 pb-3">
+              <DowntimeSummaryTable downtimeSummary={data.downtimeSummary} />
+              <DowntimeDetailsTable downtimeDetails={data.downtimeDetails} />
+            </div>
+          </div>
         )}
       </main>
 
@@ -138,11 +161,15 @@ export const DashboardPage: React.FC = () => {
           <span className="text-[#0f3852] font-bold">Active Lane: {selectedLane}</span>
           <span className="text-slate-300">|</span>
           <span className="text-amber-700 font-bold">Active View: Hour {selectedHour}</span>
+          <span className="text-slate-300">|</span>
+          <span className="text-cyan-800 font-bold uppercase tracking-wider">
+            Mode: {viewMode === 'charts' ? 'Visual Charts' : 'Full Tabular Data'}
+          </span>
         </div>
         <div className="flex items-center gap-3">
           <span>Date: <strong className="text-slate-700">{selectedDate}</strong></span>
           <span className="text-slate-300">|</span>
-          <span>Last Sync: <strong className="text-slate-800">{lastRefreshed.toLocaleTimeString()}</strong></span>
+          <span>Updated: <strong className="text-slate-700">{lastRefreshed.toLocaleTimeString()}</strong></span>
         </div>
       </footer>
     </div>

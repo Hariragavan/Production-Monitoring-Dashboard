@@ -1,5 +1,16 @@
 import React from 'react';
-import { Pencil, Calendar, ChevronLeft, ChevronRight, User, Factory, Layers, Clock } from 'lucide-react';
+import {
+  Pencil,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  User,
+  Factory,
+  Layers,
+  Clock,
+  BarChart3,
+  Table2,
+} from 'lucide-react';
 import { FullscreenButton } from '../common/FullscreenButton';
 
 interface DashboardHeaderProps {
@@ -13,6 +24,8 @@ interface DashboardHeaderProps {
   onLaneChange: (lane: string) => void;
   onDateChange: (newDate: string) => void;
   onEditClick: () => void;
+  viewMode: 'charts' | 'table';
+  onViewModeChange: (mode: 'charts' | 'table') => void;
 }
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
@@ -26,6 +39,8 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   onLaneChange,
   onDateChange,
   onEditClick,
+  viewMode,
+  onViewModeChange,
 }) => {
   // Navigation helpers for dates
   const handleStepDate = (days: number) => {
@@ -58,9 +73,9 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Center: Shift Context Controls (Date Selector without Demo & Hour Dropdown) */}
+      {/* 2. Center: Shift Context Controls (Date Selector & Hour Dropdown) */}
       <div className="hidden md:flex items-center gap-2 flex-shrink-0">
-        {/* Date Selector Badge (No Demo Button) */}
+        {/* Date Selector Badge */}
         <div className="h-8 flex items-center gap-1 bg-slate-950/70 border border-slate-700/80 px-2 rounded-lg shadow-inner">
           <Calendar className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0 mr-0.5" />
           <span className="text-[11px] text-slate-400 font-semibold">Date:</span>
@@ -126,8 +141,38 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
       </div>
 
-      {/* 3. Right: Lane Dropdown + Lane Supervisor + Fullscreen + Edit Button (Guaranteed in frame) */}
+      {/* 3. Right: View Mode Toggle, Lane Dropdown, Supervisor, Fullscreen, Edit Button */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        {/* Charts vs Table Switcher Button */}
+        <div className="h-8 flex items-center bg-slate-950/80 border border-slate-700/80 p-0.5 rounded-lg shadow-inner">
+          <button
+            type="button"
+            onClick={() => onViewModeChange('charts')}
+            className={`h-7 px-2 rounded-md text-[11px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
+              viewMode === 'charts'
+                ? 'bg-cyan-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title="Switch to Charts View"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Charts</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onViewModeChange('table')}
+            className={`h-7 px-2 rounded-md text-[11px] font-black uppercase tracking-wider flex items-center gap-1 transition-all cursor-pointer ${
+              viewMode === 'table'
+                ? 'bg-cyan-600 text-white shadow-xs'
+                : 'text-slate-400 hover:text-white'
+            }`}
+            title="Switch to Whole Table View"
+          >
+            <Table2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Table</span>
+          </button>
+        </div>
+
         {/* Lane Dropdown Badge */}
         <div className="h-8 flex items-center gap-1 bg-slate-950/80 border border-cyan-500/50 px-2 rounded-lg shadow-inner">
           <Layers className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
