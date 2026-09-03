@@ -73,71 +73,81 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
       </div>
 
-      {/* 2. Center: Shift Context Controls (Date Selector & Hour Dropdown) */}
-      <div className="hidden md:flex items-center gap-2 flex-shrink-0">
-        {/* Date Selector Badge */}
-        <div className="h-8 flex items-center gap-1 bg-slate-950/70 border border-slate-700/80 px-2 rounded-lg shadow-inner">
-          <Calendar className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0 mr-0.5" />
-          <span className="text-[11px] text-slate-400 font-semibold">Date:</span>
+      {/* 2. Center: Shift Context Controls (Smooth Animated Center Transition) */}
+      <div className="hidden md:flex items-center justify-center flex-1 transition-all duration-500 ease-in-out">
+        <div className="flex items-center transition-all duration-500 ease-in-out">
+          {/* Date Selector Badge */}
+          <div className="h-8 flex items-center gap-1 bg-slate-950/70 border border-slate-700/80 px-2.5 rounded-lg shadow-inner transition-all duration-500 ease-in-out">
+            <Calendar className="w-3.5 h-3.5 text-white flex-shrink-0 mr-0.5" />
+            <span className="text-[11px] text-white font-bold">Date:</span>
 
-          <button
-            onClick={() => handleStepDate(-1)}
-            title="Previous Day"
-            className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded transition cursor-pointer"
+            <button
+              onClick={() => handleStepDate(-1)}
+              title="Previous Day"
+              className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
+            >
+              <ChevronLeft className="w-3 h-3" />
+            </button>
+
+            {/* Direct Date Input with white calendar picker */}
+            <input
+              type="date"
+              value={productionDate}
+              onChange={(e) => e.target.value && onDateChange(e.target.value)}
+              className="bg-slate-900 text-white font-bold text-xs rounded px-1.5 py-0.5 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer [color-scheme:dark]"
+              title="Select Production Date"
+            />
+
+            <button
+              onClick={() => handleStepDate(1)}
+              title="Next Day"
+              className="p-1 hover:bg-slate-800 text-white rounded transition cursor-pointer"
+            >
+              <ChevronRight className="w-3 h-3" />
+            </button>
+
+            <button
+              onClick={handleToday}
+              title="Set Today's Date"
+              className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-white rounded border border-slate-600 transition cursor-pointer"
+            >
+              Today
+            </button>
+          </div>
+
+          {/* Hourly View Selector Dropdown (Shown in Charts mode, smoothly collapsed in Table mode) */}
+          <div
+            className={`transition-all duration-500 ease-in-out overflow-hidden flex items-center ${
+              viewMode === 'charts'
+                ? 'max-w-[260px] opacity-100 ml-2 scale-100'
+                : 'max-w-0 opacity-0 ml-0 scale-95 pointer-events-none'
+            }`}
           >
-            <ChevronLeft className="w-3 h-3" />
-          </button>
+            <div className="h-8 flex items-center gap-1.5 bg-slate-950/70 border border-amber-500/50 px-2 rounded-lg shadow-inner whitespace-nowrap flex-shrink-0">
+              <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+              <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">Hour:</span>
+              <select
+                id="header-hour-dropdown"
+                value={selectedHour}
+                onChange={(e) => onHourChange(Number(e.target.value))}
+                className="bg-slate-900 text-amber-300 font-black text-xs rounded px-1.5 py-0.5 border border-amber-500/40 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((h) => {
+                  let suffix = 'th';
+                  if (h === 1) suffix = 'st';
+                  else if (h === 2) suffix = 'nd';
+                  else if (h === 3) suffix = 'rd';
 
-          {/* Direct Date Input */}
-          <input
-            type="date"
-            value={productionDate}
-            onChange={(e) => e.target.value && onDateChange(e.target.value)}
-            className="bg-slate-900 text-white font-bold text-xs rounded px-1.5 py-0.5 border border-slate-600 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer"
-            title="Select Production Date"
-          />
-
-          <button
-            onClick={() => handleStepDate(1)}
-            title="Next Day"
-            className="p-1 hover:bg-slate-800 text-slate-300 hover:text-white rounded transition cursor-pointer"
-          >
-            <ChevronRight className="w-3 h-3" />
-          </button>
-
-          <button
-            onClick={handleToday}
-            title="Set Today's Date"
-            className="px-1.5 py-0.5 text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-600 transition cursor-pointer"
-          >
-            Today
-          </button>
-        </div>
-
-        {/* Hourly View Selector Dropdown */}
-        <div className="h-8 flex items-center gap-1.5 bg-slate-950/70 border border-amber-500/50 px-2 rounded-lg shadow-inner">
-          <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-          <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider">Hour:</span>
-          <select
-            id="header-hour-dropdown"
-            value={selectedHour}
-            onChange={(e) => onHourChange(Number(e.target.value))}
-            className="bg-slate-900 text-amber-300 font-black text-xs rounded px-1.5 py-0.5 border border-amber-500/40 focus:outline-none focus:ring-1 focus:ring-amber-400 cursor-pointer"
-          >
-            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((h) => {
-              let suffix = 'th';
-              if (h === 1) suffix = 'st';
-              else if (h === 2) suffix = 'nd';
-              else if (h === 3) suffix = 'rd';
-
-              const timeRange = `${String(7 + h).padStart(2, '0')}:00 - ${String(8 + h).padStart(2, '0')}:00`;
-              return (
-                <option key={h} value={h} className="bg-slate-900 text-white font-bold">
-                  {h}{suffix} Hour ({timeRange})
-                </option>
-              );
-            })}
-          </select>
+                  const timeRange = `${String(7 + h).padStart(2, '0')}:00 - ${String(8 + h).padStart(2, '0')}:00`;
+                  return (
+                    <option key={h} value={h} className="bg-slate-900 text-white font-bold">
+                      {h}{suffix} Hour ({timeRange})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 

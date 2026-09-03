@@ -20,7 +20,7 @@ export const DashboardPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
   const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
   const [selectedHour, setSelectedHour] = useState<number>(4); // Default to current 4th hour
-  const [viewMode, setViewMode] = useState<'charts' | 'table'>('charts'); // Charts vs Table view
+  const [viewMode, setViewMode] = useState<'charts' | 'table'>('table'); // Table view as default
   const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
