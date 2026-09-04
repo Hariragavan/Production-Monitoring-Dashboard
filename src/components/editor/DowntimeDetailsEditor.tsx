@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { DowntimeDetailItem, DowntimeCategory } from '../../types';
 import { Plus, Trash2, Clock, AlertTriangle, CheckCircle2, Copy } from 'lucide-react';
 import { CategoryDot } from '../common/StatusBadge';
-import { formatDuration, getAvailableWorkers, type WorkerItem } from '../../lib/dataService';
+import { formatDuration, getAvailableWorkers, syncWorkersFromSupabase, type WorkerItem } from '../../lib/dataService';
 
 interface DowntimeDetailsEditorProps {
   downtimeDetails: DowntimeDetailItem[];
@@ -30,8 +30,13 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
 
   useEffect(() => {
     setAvailableWorkers(getAvailableWorkers(unitName));
+    syncWorkersFromSupabase(unitName).then((synced) => {
+      if (synced && synced.length > 0) {
+        setAvailableWorkers(synced);
+      }
+    });
     const handleWorkersUpdated = (e: any) => {
-      if (e.detail?.workers && (!e.detail?.unitName || e.detail?.unitName === unitName)) {
+      if (e.detail?.workers && e.detail.workers.length > 0) {
         setAvailableWorkers(e.detail.workers);
       }
     };
@@ -309,12 +314,13 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
                         onChange={(e) => handleUpdateField(item.id, 'worker_name', e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer"
                       >
+                        <option value="" disabled>-- Select Operator --</option>
                         {availableWorkers.map((w) => (
                           <option key={w.id} value={w.name}>
                             {w.name} ({w.id})
                           </option>
                         ))}
-                        {!availableWorkers.some((w) => w.name === item.worker_name) && (
+                        {item.worker_name && !availableWorkers.some((w) => w.name === item.worker_name) && (
                           <option value={item.worker_name}>{item.worker_name}</option>
                         )}
                       </select>

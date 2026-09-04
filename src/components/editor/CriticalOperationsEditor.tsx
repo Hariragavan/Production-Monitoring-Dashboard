@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { CriticalOperation } from '../../types';
 import { Plus, Trash2, Users, Copy, CheckCircle2, Clock } from 'lucide-react';
-import { getAvailableWorkers, type WorkerItem } from '../../lib/dataService';
+import { getAvailableWorkers, syncWorkersFromSupabase, type WorkerItem } from '../../lib/dataService';
 
 interface CriticalOperationsEditorProps {
   operations: CriticalOperation[];
@@ -44,8 +44,13 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
   useEffect(() => {
     setAvailableWorkers(getAvailableWorkers(unitName));
+    syncWorkersFromSupabase(unitName).then((synced) => {
+      if (synced && synced.length > 0) {
+        setAvailableWorkers(synced);
+      }
+    });
     const handleWorkersUpdated = (e: any) => {
-      if (e.detail?.workers && (!e.detail?.unitName || e.detail?.unitName === unitName)) {
+      if (e.detail?.workers && e.detail.workers.length > 0) {
         setAvailableWorkers(e.detail.workers);
       }
     };
@@ -421,13 +426,14 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         onChange={(e) => handleUpdateField(op.id, 'worker_name', e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer"
                       >
+                        <option value="" disabled>-- Select Worker / Operator --</option>
                         {availableWorkers.map((w) => (
                           <option key={w.id} value={w.name}>
                             {w.name} ({w.id})
                           </option>
                         ))}
-                        {!availableWorkers.some((w) => w.name === op.worker_name) && (
-                          <option value={op.worker_name}>{op.worker_name}</option>
+                        {op.worker_name && !availableWorkers.some((w) => w.name === op.worker_name) && (
+                          <option value={op.worker_name}>{op.worker_name} ({op.worker_id || 'Assigned'})</option>
                         )}
                       </select>
                     </td>

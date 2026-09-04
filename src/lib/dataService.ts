@@ -418,17 +418,17 @@ export function getAvailableWorkers(unitName: string = 'Unit 01'): WorkerItem[] 
     const stored = localStorage.getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
-    // Fallback for Unit 01: check legacy un-scoped key
-    if (unitName === 'Unit 01') {
-      const legacy = localStorage.getItem('sup_tv_dashboard_workers');
-      if (legacy) {
-        const parsed = JSON.parse(legacy);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const withUnit = parsed.map((w: any) => ({ ...w, unit_name: 'Unit 01' }));
-          localStorage.setItem(key, JSON.stringify(withUnit));
-          return withUnit;
+
+    // Fallback: check all other worker keys in localStorage so workers are never lost
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && (k.startsWith(WORKERS_STORAGE_KEY_PREFIX) || k === 'sup_tv_dashboard_workers')) {
+        const item = localStorage.getItem(k);
+        if (item) {
+          const list = JSON.parse(item);
+          if (Array.isArray(list) && list.length > 0) return list;
         }
       }
     }
@@ -448,17 +448,12 @@ export async function syncWorkersFromSupabase(unitName: string = 'Unit 01'): Pro
         .eq('unit_name', unitName)
         .order('name');
 
-      // 2. If unit_name column doesn't exist yet on Supabase (error 42703), fallback safely
-      if (error && (error.code === '42703' || error.message?.includes('unit_name'))) {
+      // 2. If no workers registered specifically under this unit, or column doesn't exist, query all registered workers
+      if (error || !data || data.length === 0) {
         const fallback = await supabase.from('workers').select('*').order('name');
-        if (!fallback.error && fallback.data) {
-          if (unitName === 'Unit 01') {
-            data = fallback.data;
-            error = null;
-          } else {
-            data = [];
-            error = null;
-          }
+        if (!fallback.error && fallback.data && fallback.data.length > 0) {
+          data = fallback.data;
+          error = null;
         }
       }
 
