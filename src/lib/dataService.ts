@@ -150,7 +150,7 @@ export async function addAvailableLane(
           unit_id: unitData.id,
           production_date: today,
           lane_name: trimmed,
-          shift: `Shift 01 (${trimmed})`,
+          shift: 'Shift 01',
           supervisor_name: laneSup.name,
           supervisor_id: laneSup.id,
           worker_name: '',
@@ -271,7 +271,7 @@ export async function renameAvailableLane(
             unit_id: unitData.id,
             production_date: today,
             lane_name: trimmedNew,
-            shift: `Shift 01 (${trimmedNew})`,
+            shift: 'Shift 01',
             supervisor_name: laneSup.name,
             supervisor_id: laneSup.id,
             worker_name: '',
@@ -868,19 +868,27 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
       }
 
       if (unit?.id) {
-        // 1b. Query production_days by unit_id + production_date + lane_name
-        let { data: day } = await supabase
+        // 1b. Query production_days by unit_id + production_date + lane_name (ordered to gracefully handle any duplicates)
+        const { data: dayList } = await supabase
           .from('production_days')
           .select('*')
           .eq('unit_id', unit.id)
           .eq('production_date', date)
           .eq('lane_name', lane)
-          .maybeSingle();
+          .order('updated_at', { ascending: false });
+
+        let day = dayList && dayList.length > 0 ? dayList[0] : null;
+
+        // Clean up redundant duplicate rows if any exist in DB
+        if (dayList && dayList.length > 1) {
+          const duplicateIds = dayList.slice(1).map((d: any) => d.id);
+          supabase.from('production_days').delete().in('id', duplicateIds).then();
+        }
 
         // If not found in database, create the day with clean blank state in Supabase
         if (!day) {
           const laneSup = getLaneSupervisor(lane);
-          const shiftVal = lane === 'Lane 01' ? 'Shift 01' : `Shift 01 (${lane})`;
+          const shiftVal = 'Shift 01';
           let { data: newDay, error: insertDayErr } = await supabase
             .from('production_days')
             .insert({
@@ -898,14 +906,16 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
 
           if (insertDayErr && insertDayErr.code === '23505') {
             // Unique conflict retry
-            const { data: refound } = await supabase
+            const { data: refoundList } = await supabase
               .from('production_days')
               .select('*')
               .eq('unit_id', unit.id)
               .eq('production_date', date)
               .eq('lane_name', lane)
-              .maybeSingle();
-            newDay = refound;
+              .order('updated_at', { ascending: false });
+            if (refoundList && refoundList.length > 0) {
+              newDay = refoundList[0];
+            }
           }
 
           if (newDay) {
@@ -954,7 +964,10 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
 
           const liveData: DashboardData = {
             unit,
-            day,
+            day: {
+              ...day,
+              shift: 'Shift 01',
+            },
             hourly,
             criticalOperations: (opsRes.data || []) as CriticalOperation[],
             downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
@@ -1038,24 +1051,31 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
 
     // 2. Ensure Production Day exists in Supabase with a valid UUID
     let productionDayId: string | null = null;
-    const shiftVal = lane === 'Lane 01' ? (data.day.shift || 'Shift 01') : `${data.day.shift || 'Shift 01'} (${lane})`;
+    const cleanShift = 'Shift 01';
 
     // Check if day already exists for this unit + date + lane
-    const { data: existingDay } = await supabase
+    const { data: existingDays } = await supabase
       .from('production_days')
-      .select('id')
+      .select('id, updated_at')
       .eq('unit_id', unitId)
       .eq('production_date', date)
       .eq('lane_name', lane)
-      .maybeSingle();
+      .order('updated_at', { ascending: false });
 
-    if (existingDay?.id) {
-      productionDayId = existingDay.id;
+    if (existingDays && existingDays.length > 0) {
+      productionDayId = existingDays[0].id;
+
+      // Clean up any extraneous duplicate rows in Supabase
+      if (existingDays.length > 1) {
+        const dupIds = existingDays.slice(1).map((d: any) => d.id);
+        supabase.from('production_days').delete().in('id', dupIds).then();
+      }
+
       const { error: updateErr } = await supabase
         .from('production_days')
         .update({
           unit_id: unitId,
-          shift: shiftVal,
+          shift: cleanShift,
           supervisor_name: data.day.supervisor_name || 'Supervisor',
           supervisor_id: data.day.supervisor_id || 'SUP-01',
           lane_name: lane,
@@ -1073,7 +1093,7 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
         .insert({
           unit_id: unitId,
           production_date: date,
-          shift: shiftVal,
+          shift: cleanShift,
           supervisor_name: data.day.supervisor_name || 'Supervisor',
           supervisor_id: data.day.supervisor_id || 'SUP-01',
           lane_name: lane,
@@ -1084,14 +1104,20 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
         .single();
 
       if (insertErr && insertErr.code === '23505') {
-        const { data: refound } = await supabase
+        const { data: refoundList } = await supabase
           .from('production_days')
           .select('id')
           .eq('unit_id', unitId)
           .eq('production_date', date)
           .eq('lane_name', lane)
-          .maybeSingle();
-        if (refound) newDay = refound;
+          .order('updated_at', { ascending: false });
+        if (refoundList && refoundList.length > 0) {
+          newDay = refoundList[0];
+          if (refoundList.length > 1) {
+            const dupIds = refoundList.slice(1).map((d: any) => d.id);
+            supabase.from('production_days').delete().in('id', dupIds).then();
+          }
+        }
       }
 
       if (insertErr && !newDay) throw insertErr;
