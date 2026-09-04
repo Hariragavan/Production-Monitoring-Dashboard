@@ -144,17 +144,39 @@ export const EditPage: React.FC = () => {
     }));
   };
 
-  const handleAddLane = (newLane: string) => {
-    const updated = addAvailableLane(newLane, selectedUnit);
-    setAvailableLanes(updated);
+  const handleAddLane = async (newLane: string) => {
+    const result = await addAvailableLane(newLane, selectedUnit);
+    setAvailableLanes(result.lanes);
     setSelectedLane(newLane);
+    if (!result.success && result.error) {
+      setSaveMessage(`Notice: Added locally, database returned: ${result.error}`);
+      setSaveStatus('error');
+    } else {
+      setSaveMessage(`✓ Added lane "${newLane}" to ${selectedUnit} in database`);
+      setSaveStatus('success');
+      setTimeout(() => {
+        setSaveStatus('idle');
+        setSaveMessage('');
+      }, 4000);
+    }
   };
 
-  const handleDeleteLane = (laneToDelete: string) => {
-    const updated = deleteAvailableLane(laneToDelete, selectedUnit);
-    setAvailableLanes(updated);
-    if (selectedLane === laneToDelete && updated.length > 0) {
-      setSelectedLane(updated[0]);
+  const handleDeleteLane = async (laneToDelete: string) => {
+    const result = await deleteAvailableLane(laneToDelete, selectedUnit);
+    setAvailableLanes(result.lanes);
+    if (selectedLane === laneToDelete && result.lanes.length > 0) {
+      setSelectedLane(result.lanes[0]);
+    }
+    if (!result.success && result.error) {
+      setSaveMessage(`Notice: Removed locally, database returned: ${result.error}`);
+      setSaveStatus('error');
+    } else {
+      setSaveMessage(`✓ Deleted lane "${laneToDelete}" from ${selectedUnit} and database`);
+      setSaveStatus('success');
+      setTimeout(() => {
+        setSaveStatus('idle');
+        setSaveMessage('');
+      }, 4000);
     }
   };
 

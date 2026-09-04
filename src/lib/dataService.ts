@@ -94,14 +94,12 @@ export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promi
 
         if (data && data.length > 0) {
           const lanesFromDb = Array.from(new Set(data.map((d: any) => d.lane_name).filter(Boolean)));
-          const current = getAvailableLanes(unitName);
-          const merged = Array.from(new Set([...current, ...lanesFromDb]));
           const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
-          localStorage.setItem(key, JSON.stringify(merged));
+          localStorage.setItem(key, JSON.stringify(lanesFromDb));
           window.dispatchEvent(
-            new CustomEvent('production-lanes-updated', { detail: { lanes: merged, unitName } })
+            new CustomEvent('production-lanes-updated', { detail: { lanes: lanesFromDb, unitName } })
           );
-          return merged;
+          return lanesFromDb;
         }
       }
     } catch (err) {
@@ -111,29 +109,97 @@ export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promi
   return getAvailableLanes(unitName);
 }
 
-export function addAvailableLane(newLane: string, unitName: string = 'Unit 01'): string[] {
+export async function addAvailableLane(
+  newLane: string,
+  unitName: string = 'Unit 01'
+): Promise<{ success: boolean; lanes: string[]; error?: string }> {
   const current = getAvailableLanes(unitName);
   const trimmed = newLane.trim();
-  if (!trimmed || current.includes(trimmed)) return current;
+  if (!trimmed) return { success: false, lanes: current, error: 'Lane name cannot be empty' };
+  if (current.includes(trimmed)) return { success: false, lanes: current, error: `Lane "${trimmed}" already exists` };
+
   const updated = [...current, trimmed];
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
+
+  let supabaseError: string | undefined;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: unitData } = await supabase
+        .from('units')
+        .select('id')
+        .eq('unit_name', unitName)
+        .maybeSingle();
+
+      if (unitData?.id) {
+        const today = new Date().toISOString().split('T')[0];
+        const laneSup = getLaneSupervisor(trimmed);
+        const { error } = await supabase.from('production_days').insert({
+          unit_id: unitData.id,
+          production_date: today,
+          lane_name: trimmed,
+          shift: `Shift 01 (${trimmed})`,
+          supervisor_name: laneSup.name,
+          supervisor_id: laneSup.id,
+          worker_name: '',
+          worker_id: '',
+        });
+        if (error && error.code !== '23505') {
+          supabaseError = error.message;
+          console.warn(`Could not add lane to Supabase for ${unitName}:`, error);
+        }
+      }
+    } catch (err: any) {
+      supabaseError = err.message;
+    }
+  }
+
   window.dispatchEvent(
     new CustomEvent('production-lanes-updated', { detail: { lanes: updated, unitName } })
   );
-  return updated;
+  return { success: !supabaseError, lanes: updated, error: supabaseError };
 }
 
-export function deleteAvailableLane(laneToDelete: string, unitName: string = 'Unit 01'): string[] {
+export async function deleteAvailableLane(
+  laneToDelete: string,
+  unitName: string = 'Unit 01'
+): Promise<{ success: boolean; lanes: string[]; error?: string }> {
   const current = getAvailableLanes(unitName);
-  if (current.length <= 1) return current; // Keep at least 1 lane
+  if (current.length <= 1) return { success: false, lanes: current, error: 'At least 1 lane is required' };
   const updated = current.filter((l) => l !== laneToDelete);
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
+
+  let supabaseError: string | undefined;
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data: unitData } = await supabase
+        .from('units')
+        .select('id')
+        .eq('unit_name', unitName)
+        .maybeSingle();
+
+      if (unitData?.id) {
+        const { error } = await supabase
+          .from('production_days')
+          .delete()
+          .eq('unit_id', unitData.id)
+          .eq('lane_name', laneToDelete);
+
+        if (error) {
+          supabaseError = error.message;
+          console.warn(`Could not delete lane "${laneToDelete}" from Supabase:`, error);
+        }
+      }
+    } catch (err: any) {
+      supabaseError = err.message;
+    }
+  }
+
   window.dispatchEvent(
     new CustomEvent('production-lanes-updated', { detail: { lanes: updated, unitName } })
   );
-  return updated;
+  return { success: !supabaseError, lanes: updated, error: supabaseError };
 }
 
 export async function renameAvailableLane(
@@ -175,15 +241,30 @@ export async function renameAvailableLane(
         .maybeSingle();
 
       if (unitData?.id) {
-        const { error } = await supabase
+        const { data: updatedRows, error } = await supabase
           .from('production_days')
           .update({ lane_name: trimmedNew })
           .eq('unit_id', unitData.id)
-          .eq('lane_name', trimmedOld);
+          .eq('lane_name', trimmedOld)
+          .select();
 
         if (error) {
           supabaseError = error.message;
           console.warn(`Could not rename lane in Supabase for ${unitName}:`, error);
+        } else if (!updatedRows || updatedRows.length === 0) {
+          // If no rows existed for old lane in DB, seed new lane for today
+          const today = new Date().toISOString().split('T')[0];
+          const laneSup = getLaneSupervisor(trimmedNew);
+          await supabase.from('production_days').insert({
+            unit_id: unitData.id,
+            production_date: today,
+            lane_name: trimmedNew,
+            shift: `Shift 01 (${trimmedNew})`,
+            supervisor_name: laneSup.name,
+            supervisor_id: laneSup.id,
+            worker_name: '',
+            worker_id: '',
+          });
         }
       }
     } catch (err: any) {
@@ -501,22 +582,48 @@ export async function updateAvailableWorker(
       if (newId !== originalWorkerId) payload.worker_id = newId;
       if (trimmedRole !== undefined) payload.role = trimmedRole;
       if (trimmedDept !== undefined) payload.department = trimmedDept;
-
-      // Also ensure unit_name if column exists
       payload.unit_name = unitName;
 
-      let { error } = await supabase.from('workers').update(payload).eq('worker_id', originalWorkerId);
+      let { data: updatedRows, error } = await supabase
+        .from('workers')
+        .update(payload)
+        .eq('worker_id', originalWorkerId.trim())
+        .select();
 
       // If unit_name column doesn't exist, retry update without unit_name
       if (error && (error.code === '42703' || error.message?.includes('unit_name'))) {
         delete payload.unit_name;
-        const fallback = await supabase.from('workers').update(payload).eq('worker_id', originalWorkerId);
+        const fallback = await supabase
+          .from('workers')
+          .update(payload)
+          .eq('worker_id', originalWorkerId.trim())
+          .select();
         error = fallback.error;
+        updatedRows = fallback.data;
       }
 
       if (error) {
         supabaseError = error.message;
         console.warn('Could not update worker in Supabase:', error);
+      } else if (!updatedRows || updatedRows.length === 0) {
+        // Worker was not yet in Supabase! Insert it now so it is saved in database!
+        const insertPayload: any = {
+          worker_id: newId,
+          name: trimmedName || '',
+          role: trimmedRole || '',
+          department: trimmedDept || '',
+          unit_name: unitName,
+        };
+        let { error: insErr } = await supabase.from('workers').insert(insertPayload);
+        if (insErr && (insErr.code === '42703' || insErr.message?.includes('unit_name'))) {
+          delete insertPayload.unit_name;
+          const fb = await supabase.from('workers').insert(insertPayload);
+          insErr = fb.error;
+        }
+        if (insErr) {
+          supabaseError = insErr.message;
+          console.warn('Could not insert worker into Supabase during update:', insErr);
+        }
       }
     } catch (err: any) {
       supabaseError = err.message;
@@ -535,7 +642,8 @@ export async function deleteAvailableWorker(
   unitName: string = 'Unit 01'
 ): Promise<{ success: boolean; workers: WorkerItem[]; error?: string }> {
   const current = getAvailableWorkers(unitName);
-  const updated = current.filter((w) => w.id !== workerId);
+  const trimmedId = workerId.trim();
+  const updated = current.filter((w) => w.id !== trimmedId && w.id !== workerId);
   const key = `${WORKERS_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
   window.dispatchEvent(
@@ -545,7 +653,11 @@ export async function deleteAvailableWorker(
   let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
     try {
-      const { error } = await supabase.from('workers').delete().eq('worker_id', workerId);
+      const { error } = await supabase
+        .from('workers')
+        .delete()
+        .eq('worker_id', trimmedId);
+
       if (error) {
         supabaseError = error.message;
         console.warn('Could not delete worker from Supabase:', error);

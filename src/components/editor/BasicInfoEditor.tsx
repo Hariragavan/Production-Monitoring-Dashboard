@@ -35,8 +35,8 @@ interface BasicInfoEditorProps {
   availableLanes: string[];
   selectedLane: string;
   onLaneChange: (lane: string) => void;
-  onAddLane: (newLane: string) => void;
-  onDeleteLane: (lane: string) => void;
+  onAddLane: (newLane: string) => Promise<void> | void;
+  onDeleteLane: (lane: string) => Promise<void> | void;
   onRenameLane?: (oldName: string, newName: string) => Promise<void> | void;
   onChange: (updatedDay: Partial<ProductionDay>) => void;
   onDateChange: (newDate: string) => void;
@@ -131,7 +131,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   };
 
   // Lane Handlers
-  const handleAddNewLane = (e: React.FormEvent) => {
+  const handleAddNewLane = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = newLaneInput.trim();
     if (!trimmed) {
@@ -142,7 +142,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
       setLaneError('This lane already exists');
       return;
     }
-    onAddLane(trimmed);
+    await onAddLane(trimmed);
     onLaneChange(trimmed);
     onChange({ lane_name: trimmed });
     setNewLaneInput('');
@@ -464,7 +464,11 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
                     {availableLanes.length > 1 && (
                       <button
                         type="button"
-                        onClick={() => onDeleteLane(lane)}
+                        onClick={async () => {
+                          if (window.confirm(`Are you sure you want to delete "${lane}" from ${unitName}? This will permanently remove its metrics from the database.`)) {
+                            await onDeleteLane(lane);
+                          }
+                        }}
                         title={`Remove ${lane}`}
                         className={`p-1 rounded transition cursor-pointer ${
                           isSelected
