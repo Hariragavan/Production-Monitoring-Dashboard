@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS downtime_details (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 6b. Create Operations Catalog Table
+CREATE TABLE IF NOT EXISTS operation_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    operation_name VARCHAR(150) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
 -- 7. Grant full permissions to anon and authenticated roles
 GRANT ALL ON TABLE units TO anon, authenticated, service_role;
 GRANT ALL ON TABLE production_days TO anon, authenticated, service_role;
@@ -93,6 +100,7 @@ GRANT ALL ON TABLE hourly_production TO anon, authenticated, service_role;
 GRANT ALL ON TABLE critical_operations TO anon, authenticated, service_role;
 GRANT ALL ON TABLE downtime_summary TO anon, authenticated, service_role;
 GRANT ALL ON TABLE downtime_details TO anon, authenticated, service_role;
+GRANT ALL ON TABLE operation_types TO anon, authenticated, service_role;
 
 -- 8. Disable RLS and create permissive policies
 ALTER TABLE units DISABLE ROW LEVEL SECURITY;

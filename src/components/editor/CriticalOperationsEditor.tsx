@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import type { CriticalOperation } from '../../types';
-import { Plus, Trash2, Users, Copy, CheckCircle2, Clock } from 'lucide-react';
-import { getAvailableWorkers, syncWorkersFromSupabase, type WorkerItem } from '../../lib/dataService';
+import { Plus, Trash2, Users, Copy, CheckCircle2, Clock, X, Check } from 'lucide-react';
+import {
+  getAvailableWorkers,
+  syncWorkersFromSupabase,
+  getAvailableOperations,
+  addCustomOperation,
+  syncOperationsFromSupabase,
+  type WorkerItem,
+} from '../../lib/dataService';
 import { getCriticalOpPerformanceStyle } from '../dashboard/CriticalOperationsTable';
 
 interface CriticalOperationsEditorProps {
@@ -23,17 +30,6 @@ const DEFAULT_OP_SEQUENCE = [
   'NECK TOP STITCH',
 ];
 
-const STANDARD_OPERATIONS = [
-  'SHOULDER TOP STITCH',
-  'BOTTOM RIB ATTACH',
-  'SLEEVE ATTACH',
-  'SIDE SEAM',
-  'SHOULDER ATTACH',
-  'BOTTOM RIB TOP STITCH',
-  'SLEEVE TOP STITCH',
-  'NECK TOP STITCH',
-];
-
 export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> = ({
   operations,
   onChange,
@@ -41,9 +37,16 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 }) => {
   const [activeHour, setActiveHour] = useState<number>(1);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [opFeedback, setOpFeedback] = useState<string | null>(null);
   const [availableWorkers, setAvailableWorkers] = useState<WorkerItem[]>(() => getAvailableWorkers(unitName));
+  const [availableOperations, setAvailableOperations] = useState<string[]>(getAvailableOperations);
+  const [showNewOpModal, setShowNewOpModal] = useState<boolean>(false);
+  const [newOpInput, setNewOpInput] = useState<string>('');
+  const [targetOpIdForNew, setTargetOpIdForNew] = useState<string | null>(null);
+  const [isSavingOp, setIsSavingOp] = useState<boolean>(false);
 
   useEffect(() => {
+    // 1. Sync Workers
     setAvailableWorkers(getAvailableWorkers(unitName));
     syncWorkersFromSupabase(unitName).then((synced) => {
       if (synced && synced.length > 0) {
@@ -56,7 +59,25 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       }
     };
     window.addEventListener('production-workers-updated', handleWorkersUpdated);
-    return () => window.removeEventListener('production-workers-updated', handleWorkersUpdated);
+
+    // 2. Sync Custom Operations
+    setAvailableOperations(getAvailableOperations());
+    syncOperationsFromSupabase().then((synced) => {
+      if (synced && synced.length > 0) {
+        setAvailableOperations(synced);
+      }
+    });
+    const handleOperationsUpdated = (e: any) => {
+      if (e.detail?.operations && e.detail.operations.length > 0) {
+        setAvailableOperations(e.detail.operations);
+      }
+    };
+    window.addEventListener('production-operations-updated', handleOperationsUpdated);
+
+    return () => {
+      window.removeEventListener('production-workers-updated', handleWorkersUpdated);
+      window.removeEventListener('production-operations-updated', handleOperationsUpdated);
+    };
   }, [unitName]);
 
   // Suffix helper
@@ -105,6 +126,36 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     onChange(updated);
   };
 
+  // Add & Save new operation to Supabase & localStorage
+  const handleSaveNewOperation = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newOpInput.trim();
+    if (!trimmed) return;
+
+    setIsSavingOp(true);
+    try {
+      const res = await addCustomOperation(trimmed);
+      if (res.success) {
+        setAvailableOperations(res.operations);
+        // If a specific row triggered the creation, set that row's operation_name to the new op
+        if (targetOpIdForNew) {
+          handleUpdateField(targetOpIdForNew, 'operation_name', trimmed.toUpperCase());
+        }
+        setOpFeedback(`✓ Operation "${trimmed.toUpperCase()}" added & saved to database!`);
+        setTimeout(() => setOpFeedback(null), 3500);
+        setShowNewOpModal(false);
+        setNewOpInput('');
+        setTargetOpIdForNew(null);
+      } else if (res.error) {
+        alert(res.error);
+      }
+    } catch (err: any) {
+      console.error('Error adding operation:', err);
+    } finally {
+      setIsSavingOp(false);
+    }
+  };
+
   // Add new operation for this hour
   const handleAddOpForHour = () => {
     const nextNo =
@@ -113,7 +164,8 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
         : 1;
 
     const defaultWorker = availableWorkers[(nextNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
-    const defaultOp = DEFAULT_OP_SEQUENCE[(nextNo - 1) % DEFAULT_OP_SEQUENCE.length];
+    const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
+    const defaultOp = opPool[(nextNo - 1) % opPool.length];
 
     const newOp: CriticalOperation = {
       id: `co-${nextNo}-${activeHour}-${Date.now()}`,
@@ -197,12 +249,20 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
           </p>
         </div>
 
-        {copyFeedback && (
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>{copyFeedback}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {opFeedback && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-cyan-100 text-cyan-900 rounded-lg text-xs font-bold border border-cyan-300 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-cyan-600" />
+              <span>{opFeedback}</span>
+            </div>
+          )}
+          {copyFeedback && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>{copyFeedback}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 10-HOUR SELECTOR BUTTON STRIP */}
@@ -324,6 +384,21 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
             </button>
           )}
 
+          {/* Create New Master Operation */}
+          <button
+            type="button"
+            onClick={() => {
+              setTargetOpIdForNew(null);
+              setNewOpInput('');
+              setShowNewOpModal(true);
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-300 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer"
+            title="Create a new operation and save to database"
+          >
+            <Plus className="w-3.5 h-3.5 text-sky-600" />
+            <span>+ New Operation</span>
+          </button>
+
           {/* Add Operation for this Hour */}
           <button
             type="button"
@@ -402,22 +477,47 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                       </span>
                     </td>
 
-                    {/* Operation Name Dropdown */}
+                    {/* Operation Name Dropdown & Add Button */}
                     <td className="px-3 py-2.5 border-r border-slate-200">
-                      <select
-                        value={op.operation_name}
-                        onChange={(e) => handleUpdateField(op.id, 'operation_name', e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer"
-                      >
-                        {STANDARD_OPERATIONS.map((name) => (
-                          <option key={name} value={name}>
-                            {name}
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={op.operation_name}
+                          onChange={(e) => {
+                            if (e.target.value === '__CREATE_NEW__') {
+                              setTargetOpIdForNew(op.id || null);
+                              setNewOpInput('');
+                              setShowNewOpModal(true);
+                            } else {
+                              handleUpdateField(op.id, 'operation_name', e.target.value);
+                            }
+                          }}
+                          className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer truncate"
+                        >
+                          {availableOperations.map((name) => (
+                            <option key={name} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                          {op.operation_name && !availableOperations.includes(op.operation_name) && (
+                            <option value={op.operation_name}>{op.operation_name}</option>
+                          )}
+                          <option value="__CREATE_NEW__" className="text-cyan-700 font-bold bg-cyan-50">
+                            ➕ + Create New Operation...
                           </option>
-                        ))}
-                        {!STANDARD_OPERATIONS.includes(op.operation_name) && (
-                          <option value={op.operation_name}>{op.operation_name}</option>
-                        )}
-                      </select>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTargetOpIdForNew(op.id || null);
+                            setNewOpInput('');
+                            setShowNewOpModal(true);
+                          }}
+                          className="p-1.5 bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-300 hover:border-cyan-400 rounded-md transition shadow-xs cursor-pointer shrink-0"
+                          title="Add a new operation type & save to database"
+                        >
+                          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                        </button>
+                      </div>
                     </td>
 
                     {/* Worker / Operator Dropdown */}
@@ -542,6 +642,83 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
               </tr>
             </tfoot>
           </table>
+        </div>
+      )}
+
+      {/* CREATE NEW OPERATION MODAL */}
+      {showNewOpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="bg-[#134665] text-white px-5 py-3.5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Plus className="w-5 h-5 text-cyan-300" />
+                <h4 className="font-bold text-sm tracking-wide">Create New Operation</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewOpModal(false);
+                  setNewOpInput('');
+                  setTargetOpIdForNew(null);
+                }}
+                className="text-cyan-200 hover:text-white transition cursor-pointer p-1 rounded hover:bg-white/10"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleSaveNewOperation} className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Operation Name <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={newOpInput}
+                  onChange={(e) => setNewOpInput(e.target.value)}
+                  placeholder="e.g. COLLAR STITCH, POCKET HEM..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm font-bold text-slate-900 placeholder:text-slate-400 uppercase focus:bg-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                  This operation will be saved to the database and will permanently appear in all operation dropdowns across all hours.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewOpModal(false);
+                    setNewOpInput('');
+                    setTargetOpIdForNew(null);
+                  }}
+                  className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                  disabled={isSavingOp}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newOpInput.trim() || isSavingOp}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-700 hover:bg-cyan-800 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-xs transition active:scale-95 cursor-pointer"
+                >
+                  {isSavingOp ? (
+                    <span>Saving...</span>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>Save &amp; Add Operation</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -358,6 +358,93 @@ export function deleteAvailableUnit(unitToDelete: string): string[] {
   return updated;
 }
 
+// Operations Master Directory
+const OPERATIONS_STORAGE_KEY = 'sup_tv_dashboard_operations';
+
+export const DEFAULT_OPERATIONS: string[] = [
+  'SHOULDER TOP STITCH',
+  'BOTTOM RIB ATTACH',
+  'SLEEVE ATTACH',
+  'SIDE SEAM',
+  'SHOULDER ATTACH',
+  'BOTTOM RIB TOP STITCH',
+  'SLEEVE TOP STITCH',
+  'NECK TOP STITCH',
+];
+
+export function getAvailableOperations(): string[] {
+  try {
+    const stored = localStorage.getItem(OPERATIONS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return Array.from(new Set([...DEFAULT_OPERATIONS, ...parsed]));
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_OPERATIONS;
+}
+
+export async function addCustomOperation(newOp: string): Promise<{ success: boolean; operations: string[]; error?: string }> {
+  const trimmed = newOp.trim().toUpperCase();
+  const current = getAvailableOperations();
+  if (!trimmed) {
+    return { success: false, operations: current, error: 'Operation name cannot be empty' };
+  }
+
+  const updated = Array.from(new Set([...current, trimmed]));
+  localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(updated));
+
+  // Save to Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      // 1. Try to upsert into operation_types table
+      const { error } = await supabase.from('operation_types').upsert({ operation_name: trimmed }, { onConflict: 'operation_name' });
+      if (error && error.code !== '42P01') {
+        console.warn('Could not save operation to Supabase operation_types:', error);
+      }
+    } catch (err) {
+      console.warn('Supabase operation insert warning:', err);
+    }
+  }
+
+  window.dispatchEvent(new CustomEvent('production-operations-updated', { detail: { operations: updated, newOperation: trimmed } }));
+  return { success: true, operations: updated };
+}
+
+export async function syncOperationsFromSupabase(): Promise<string[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      let opsFromDb: string[] = [];
+
+      // 1. Try querying operation_types
+      const { data: opTypes, error: opErr } = await supabase.from('operation_types').select('operation_name');
+      if (!opErr && opTypes && opTypes.length > 0) {
+        opsFromDb = opTypes.map((o: any) => o.operation_name).filter(Boolean);
+      }
+
+      // 2. Also query distinct operation_name from critical_operations table
+      const { data: critOps } = await supabase.from('critical_operations').select('operation_name');
+      if (critOps && critOps.length > 0) {
+        const fromCrit = critOps.map((c: any) => c.operation_name).filter(Boolean);
+        opsFromDb = Array.from(new Set([...opsFromDb, ...fromCrit]));
+      }
+
+      if (opsFromDb.length > 0) {
+        const merged = Array.from(new Set([...getAvailableOperations(), ...opsFromDb]));
+        localStorage.setItem(OPERATIONS_STORAGE_KEY, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('production-operations-updated', { detail: { operations: merged } }));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Could not sync operations from Supabase:', err);
+    }
+  }
+  return getAvailableOperations();
+}
+
 // Workers / Employees Master Directory
 export interface WorkerItem {
   name: string;
