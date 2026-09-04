@@ -124,9 +124,11 @@ export const DashboardPage: React.FC = () => {
       loadData(false);
     });
 
+    // 5-minute auto-refresh cycle for continuous TV dashboard display
+    const FIVE_MINUTES_MS = 5 * 60 * 1000;
     const interval = setInterval(() => {
       loadData(false);
-    }, 20000);
+    }, FIVE_MINUTES_MS);
 
     return () => {
       unsubscribe();
@@ -199,6 +201,16 @@ export const DashboardPage: React.FC = () => {
           <span>Date: <strong className="text-slate-700">{selectedDate}</strong></span>
           <span className="text-slate-300">|</span>
           <span>Updated: <strong className="text-slate-700">{lastRefreshed.toLocaleTimeString()}</strong></span>
+          <span className="text-slate-300">|</span>
+          <button
+            type="button"
+            onClick={() => loadData(true)}
+            title="Click to refresh now (auto-refreshes every 5 mins)"
+            className="flex items-center gap-1 text-cyan-800 hover:text-cyan-900 font-bold transition cursor-pointer"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Auto: 5 mins</span>
+          </button>
         </div>
       </footer>
     </div>

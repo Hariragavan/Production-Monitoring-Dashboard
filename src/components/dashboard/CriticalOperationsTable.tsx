@@ -160,17 +160,42 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
                   </th>
                 );
               })}
+              {/* Total Column Header */}
+              <th className="w-[72px] px-0.5 py-1 border-l-2 border-slate-400/70 bg-[#12364c] text-cyan-200 font-black">
+                <div className="flex flex-col items-center leading-none py-0.5">
+                  <span className="text-[10px] font-black uppercase tracking-wider">TOTAL</span>
+                  <span className="text-[8px] text-cyan-300/80 font-normal mt-0.5">Act / Tgt</span>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="text-slate-800 font-medium">
             {sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="py-4 text-center text-slate-500 font-semibold italic text-xs">
+                <td colSpan={13} className="py-4 text-center text-slate-500 font-semibold italic text-xs">
                   No critical operations logged for this shift.
                 </td>
               </tr>
             ) : (
               sortedRows.map((row, rowIndex) => {
+                // Calculate row total across all 10 hours from box data
+                let rowTotalProd = 0;
+                let rowTotalTarget = 0;
+                let hasActiveData = false;
+
+                for (let h = 1; h <= 10; h++) {
+                  const cell = row.hours[h];
+                  if (cell && (cell.workerName || Number(cell.production) > 0 || Number(cell.target) > 0)) {
+                    rowTotalProd += Number(cell.production) || 0;
+                    rowTotalTarget += Number(cell.target) || 0;
+                    hasActiveData = true;
+                  }
+                }
+
+                const totalStyle = hasActiveData
+                  ? getCriticalOpPerformanceStyle(rowTotalProd, rowTotalTarget)
+                  : null;
+
                 return (
                   <tr
                     key={row.operationNo}
@@ -226,11 +251,108 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
                         </td>
                       );
                     })}
+
+                    {/* Total in Last Column (Complete / Actual Target) */}
+                    <td className="p-0.5 border-l-2 border-slate-300 text-center leading-tight bg-slate-100/50">
+                      {hasActiveData && totalStyle ? (
+                        <div
+                          className={`flex flex-col items-center justify-center p-0.5 rounded border shadow-2xs transition-colors ${totalStyle.boxClass}`}
+                          title={`Total Output: ${rowTotalProd} completed / ${rowTotalTarget} target (${totalStyle.pct}%)`}
+                        >
+                          <span className="text-[8px] font-black uppercase tracking-tight truncate max-w-full">
+                            {totalStyle.pct}%
+                          </span>
+                          <div className="mt-0.2 text-[10px] font-black industrial-digits flex items-center gap-0.5">
+                            <span className={totalStyle.prodColor}>
+                              {rowTotalProd}
+                            </span>
+                            <span className="opacity-40 font-normal">/</span>
+                            <span className="opacity-75 font-bold">{rowTotalTarget}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 font-bold text-[10px]">-</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })
             )}
           </tbody>
+
+          {/* Bottom Table Summary Row */}
+          {sortedRows.length > 0 && (
+            <tfoot>
+              <tr className="bg-slate-100/90 font-black border-t-2 border-slate-300 text-[10px]">
+                <td colSpan={2} className="px-1.5 py-1 text-right font-black uppercase text-slate-700 border-r border-slate-300 tracking-tight">
+                  Hourly Total:
+                </td>
+                {Array.from({ length: 10 }, (_, i) => {
+                  const hourNum = i + 1;
+                  let hProd = 0;
+                  let hTgt = 0;
+                  let hActive = false;
+                  sortedRows.forEach((r) => {
+                    const c = r.hours[hourNum];
+                    if (c && (c.workerName || Number(c.production) > 0 || Number(c.target) > 0)) {
+                      hProd += Number(c.production) || 0;
+                      hTgt += Number(c.target) || 0;
+                      hActive = true;
+                    }
+                  });
+
+                  if (!hActive) {
+                    return (
+                      <td key={hourNum} className="px-0.5 py-1 border-r border-slate-300 text-slate-400 text-center">
+                        -
+                      </td>
+                    );
+                  }
+
+                  const hStyle = getCriticalOpPerformanceStyle(hProd, hTgt);
+                  return (
+                    <td key={hourNum} className="p-0.5 border-r border-slate-300 text-center">
+                      <div className={`p-0.5 rounded border ${hStyle.boxClass}`}>
+                        <div className="text-[9px] font-black industrial-digits flex items-center justify-center gap-0.5">
+                          <span className={hStyle.prodColor}>{hProd}</span>
+                          <span className="opacity-40 font-normal">/</span>
+                          <span className="opacity-75 font-bold">{hTgt}</span>
+                        </div>
+                      </div>
+                    </td>
+                  );
+                })}
+
+                {/* Grand Total across all operations and hours */}
+                {(() => {
+                  let gProd = 0;
+                  let gTgt = 0;
+                  sortedRows.forEach((r) => {
+                    for (let h = 1; h <= 10; h++) {
+                      const c = r.hours[h];
+                      if (c) {
+                        gProd += Number(c.production) || 0;
+                        gTgt += Number(c.target) || 0;
+                      }
+                    }
+                  });
+                  const gStyle = getCriticalOpPerformanceStyle(gProd, gTgt);
+                  return (
+                    <td className="p-0.5 border-l-2 border-slate-300 text-center bg-cyan-50/50">
+                      <div className={`p-0.5 rounded border shadow-2xs font-black ${gStyle.boxClass}`} title={`Shift Grand Total: ${gProd} / ${gTgt} (${gStyle.pct}%)`}>
+                        <span className="text-[8px] font-black uppercase block leading-none">{gStyle.pct}%</span>
+                        <div className="text-[9px] font-black industrial-digits flex items-center justify-center gap-0.5 mt-0.5">
+                          <span className={gStyle.prodColor}>{gProd}</span>
+                          <span className="opacity-40 font-normal">/</span>
+                          <span className="opacity-75 font-bold">{gTgt}</span>
+                        </div>
+                      </div>
+                    </td>
+                  );
+                })()}
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </div>
