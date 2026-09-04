@@ -17,6 +17,7 @@ import {
   getAvailableSupervisors,
   getLaneSupervisor,
   setLaneSupervisor,
+  getTodayDateString,
   type SupervisorItem,
 } from '../lib/dataService';
 import type { DashboardData } from '../types';
@@ -59,7 +60,7 @@ export const EditPage: React.FC = () => {
   const { isAuthenticated, isLoading: authLoading, logout } = useAuth();
 
   const [activeTab, setActiveTab] = useState<TabKey>('basic');
-  const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString);
   const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>(() => {

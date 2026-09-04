@@ -12,6 +12,7 @@ import {
   getAvailableUnits,
   syncLanesFromSupabase,
   syncUnitsFromSupabase,
+  getTodayDateString,
 } from '../lib/dataService';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { DashboardData } from '../types';
@@ -20,7 +21,7 @@ import { RefreshCw } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
+  const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString);
   const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>(() => {

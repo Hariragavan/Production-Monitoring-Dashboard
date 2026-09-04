@@ -1,5 +1,14 @@
 import type { DashboardData } from '../types';
 
+const getInitialTodayDate = (): string => {
+  const d = new Date();
+  if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export const INITIAL_BLANK_DATA: DashboardData = {
   unit: {
     id: 'unit-01',
@@ -8,7 +17,7 @@ export const INITIAL_BLANK_DATA: DashboardData = {
   day: {
     id: 'day-clean',
     unit_id: 'unit-01',
-    production_date: '2026-09-01',
+    production_date: getInitialTodayDate(),
     shift: 'Shift 01',
     supervisor_name: 'Supervisor',
     lane_name: 'Lane 01',

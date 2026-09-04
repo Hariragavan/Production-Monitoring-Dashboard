@@ -46,6 +46,18 @@ export function formatDuration(minutes: number, format: 'short' | 'long' = 'shor
     : `${hrs}h ${remainingMins}m`;
 }
 
+export function getTodayDateString(): string {
+  const d = new Date();
+  // If today is Sunday (factory weekly off day), advance to Monday
+  if (d.getDay() === 0) {
+    d.setDate(d.getDate() + 1);
+  }
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const DEFAULT_LANES = ['Lane 01', 'Lane 02', 'Lane 03', 'Lane 04'];
 const LANES_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_lanes_';
 
