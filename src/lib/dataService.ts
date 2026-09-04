@@ -814,7 +814,7 @@ function getLocalData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): Das
 }
 
 // Save local storage data
-function saveLocalData(date: string, lane: string, unitName: string, data: DashboardData): void {
+function saveLocalData(date: string, lane: string, unitName: string, data: DashboardData, broadcast = true): void {
   const keyWithUnit = `${LOCAL_STORAGE_KEY_PREFIX}${unitName}_${date}_${lane}`;
   const toStore: DashboardData = {
     ...data,
@@ -838,8 +838,10 @@ function saveLocalData(date: string, lane: string, unitName: string, data: Dashb
   if (unitName === 'Unit 01') {
     localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`, JSON.stringify(toStore));
   }
-  // Broadcast change across tabs and inside current window
-  window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane, unit: unitName } }));
+  if (broadcast) {
+    // Broadcast change across tabs and inside current window only when data is actively mutated
+    window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane, unit: unitName } }));
+  }
 }
 
 // Fetch dashboard data (Supabase First, Local Fallback)
@@ -974,8 +976,8 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
             downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
           };
 
-          // Cache in local storage for offline resiliency
-          saveLocalData(date, lane, unitName, liveData);
+          // Cache in local storage for offline resiliency (DO NOT broadcast, this is read caching)
+          saveLocalData(date, lane, unitName, liveData, false);
           return liveData;
         }
       }
@@ -1207,17 +1209,26 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
   }
 }
 
-// Real-time subscription hook
+// Real-time subscription hook with debounce to prevent glitching and event storms
 export function subscribeToDashboardChanges(
   currentDayId: string,
   onUpdate: () => void
 ): () => void {
-  // 1. Local event listener for same-tab / local storage updates
-  const handleLocalUpdate = () => {
-    onUpdate();
+  let debounceTimer: any = null;
+  const debouncedUpdate = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      onUpdate();
+    }, 600);
   };
-  window.addEventListener('production-data-updated', handleLocalUpdate);
-  window.addEventListener('storage', handleLocalUpdate);
+
+  // 1. Storage event listener for cross-tab updates
+  const handleStorageUpdate = (e: StorageEvent) => {
+    if (e.key && e.key.startsWith(LOCAL_STORAGE_KEY_PREFIX)) {
+      debouncedUpdate();
+    }
+  };
+  window.addEventListener('storage', handleStorageUpdate);
 
   // 2. Supabase Realtime channel if connected
   let supabaseChannel: any = null;
@@ -1225,11 +1236,11 @@ export function subscribeToDashboardChanges(
     try {
       supabaseChannel = supabase
         .channel(`prod-day-${currentDayId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'production_days' }, () => onUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'hourly_production' }, () => onUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'critical_operations' }, () => onUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_summary' }, () => onUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_details' }, () => onUpdate())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'production_days' }, () => debouncedUpdate())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'hourly_production' }, () => debouncedUpdate())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'critical_operations' }, () => debouncedUpdate())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_summary' }, () => debouncedUpdate())
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_details' }, () => debouncedUpdate())
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             console.log('Connected to Supabase Realtime channel for production updates');
@@ -1242,8 +1253,8 @@ export function subscribeToDashboardChanges(
 
   // Return unsubscription cleanup
   return () => {
-    window.removeEventListener('production-data-updated', handleLocalUpdate);
-    window.removeEventListener('storage', handleLocalUpdate);
+    if (debounceTimer) clearTimeout(debounceTimer);
+    window.removeEventListener('storage', handleStorageUpdate);
     if (supabaseChannel && supabase) {
       supabase.removeChannel(supabaseChannel);
     }

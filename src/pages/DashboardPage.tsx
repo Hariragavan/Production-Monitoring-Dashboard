@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DashboardHeader } from '../components/dashboard/DashboardHeader';
 import { HourlyProductionChart } from '../components/dashboard/HourlyProductionChart';
@@ -61,7 +61,11 @@ export const DashboardPage: React.FC = () => {
     });
   };
 
+  const isFetchingRef = useRef(false);
+
   const loadData = useCallback(async (showSpinner = false) => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     if (showSpinner) setLoading(true);
     try {
       const fetched = await fetchDashboardData(selectedDate, selectedLane, selectedUnit);
@@ -71,6 +75,7 @@ export const DashboardPage: React.FC = () => {
       console.error('Error fetching dashboard data:', err);
     } finally {
       if (showSpinner) setLoading(false);
+      isFetchingRef.current = false;
     }
   }, [selectedDate, selectedLane, selectedUnit]);
 
@@ -112,22 +117,22 @@ export const DashboardPage: React.FC = () => {
     return () => window.removeEventListener('production-data-updated', handleDataUpdated);
   }, [selectedDate, loadData]);
 
-  // Real-time listener + fallback polling for data changes
+  // Real-time listener + fallback polling for data changes (stable dependencies to avoid subscription flicker)
   useEffect(() => {
-    const unsubscribe = subscribeToDashboardChanges(data.day?.id || `${selectedUnit}-${selectedDate}-${selectedLane}`, () => {
-      console.log('Real-time event detected, updating dashboard...');
+    const channelKey = `${selectedUnit}_${selectedDate}_${selectedLane}`;
+    const unsubscribe = subscribeToDashboardChanges(channelKey, () => {
       loadData(false);
     });
 
     const interval = setInterval(() => {
       loadData(false);
-    }, 15000);
+    }, 20000);
 
     return () => {
       unsubscribe();
       clearInterval(interval);
     };
-  }, [data.day?.id, loadData, selectedDate, selectedLane, selectedUnit]);
+  }, [selectedUnit, selectedDate, selectedLane, loadData]);
 
   const handleEditClick = () => {
     navigate('/edit');

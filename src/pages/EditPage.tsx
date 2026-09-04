@@ -226,10 +226,10 @@ export const EditPage: React.FC = () => {
       try {
         const fetched = await fetchDashboardData(selectedDate, selectedLane, selectedUnit);
         if (isMounted) {
-          setData(fetched);
-          if (fetched.unit?.unit_name && fetched.unit.unit_name !== selectedUnit) {
-            setSelectedUnit(fetched.unit.unit_name);
+          if (fetched.unit) {
+            fetched.unit.unit_name = selectedUnit;
           }
+          setData(fetched);
         }
       } catch (err) {
         console.error('Failed to load data for edit:', err);
