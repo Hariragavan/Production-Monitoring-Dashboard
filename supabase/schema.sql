@@ -21,14 +21,19 @@ CREATE TABLE IF NOT EXISTS production_days (
     worker_id VARCHAR(50) DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now(),
-    CONSTRAINT unique_unit_date_shift UNIQUE (unit_id, production_date, shift)
+    CONSTRAINT unique_unit_date_lane_shift UNIQUE (unit_id, production_date, lane_name, shift)
 );
 
--- Ensure columns exist if table was already created
+-- Ensure columns exist and update unique constraint if table was already created
 ALTER TABLE production_days ADD COLUMN IF NOT EXISTS supervisor_id VARCHAR(50) DEFAULT 'SUP-01';
 ALTER TABLE production_days ADD COLUMN IF NOT EXISTS lane_name VARCHAR(100) DEFAULT 'Lane 01';
 ALTER TABLE production_days ADD COLUMN IF NOT EXISTS worker_name VARCHAR(100) DEFAULT '';
 ALTER TABLE production_days ADD COLUMN IF NOT EXISTS worker_id VARCHAR(50) DEFAULT '';
+
+-- Update constraint to include lane_name for multi-lane support
+ALTER TABLE production_days DROP CONSTRAINT IF EXISTS unique_unit_date_shift;
+ALTER TABLE production_days DROP CONSTRAINT IF EXISTS unique_unit_date_lane_shift;
+ALTER TABLE production_days ADD CONSTRAINT unique_unit_date_lane_shift UNIQUE (unit_id, production_date, lane_name, shift);
 
 -- 3. Create Hourly Production Table
 CREATE TABLE IF NOT EXISTS hourly_production (

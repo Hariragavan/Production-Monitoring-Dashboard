@@ -371,9 +371,136 @@ function saveLocalData(date: string, lane: string, unitName: string, data: Dashb
   window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane, unit: unitName } }));
 }
 
-// Fetch dashboard data (Supabase or Local Fallback)
+// Fetch dashboard data (Supabase First, Local Fallback)
 export async function fetchDashboardData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): Promise<DashboardData> {
-  // Check local storage first for user-saved data for this unit + date + lane
+  // 1. If Supabase is configured, prioritize live database data
+  if (isSupabaseConfigured && supabase) {
+    try {
+      // 1a. Resolve or create Unit
+      let { data: unit, error: unitError } = await supabase
+        .from('units')
+        .select('*')
+        .eq('unit_name', unitName)
+        .maybeSingle();
+
+      if (unitError || !unit) {
+        const { data: newUnit, error: insertUnitErr } = await supabase
+          .from('units')
+          .insert({ unit_name: unitName })
+          .select()
+          .single();
+        if (insertUnitErr) {
+          console.warn('Could not insert unit in Supabase:', insertUnitErr);
+        } else {
+          unit = newUnit;
+        }
+      }
+
+      if (unit?.id) {
+        // 1b. Query production_days by unit_id + production_date + lane_name
+        let { data: day } = await supabase
+          .from('production_days')
+          .select('*')
+          .eq('unit_id', unit.id)
+          .eq('production_date', date)
+          .eq('lane_name', lane)
+          .maybeSingle();
+
+        // If not found in database, create the day with clean blank state in Supabase
+        if (!day) {
+          const laneSup = getLaneSupervisor(lane);
+          const shiftVal = lane === 'Lane 01' ? 'Shift 01' : `Shift 01 (${lane})`;
+          let { data: newDay, error: insertDayErr } = await supabase
+            .from('production_days')
+            .insert({
+              unit_id: unit.id,
+              production_date: date,
+              shift: shiftVal,
+              supervisor_name: laneSup.name,
+              supervisor_id: laneSup.id,
+              lane_name: lane,
+              worker_name: '',
+              worker_id: '',
+            })
+            .select()
+            .single();
+
+          if (insertDayErr && insertDayErr.code === '23505') {
+            // Unique conflict retry
+            const { data: refound } = await supabase
+              .from('production_days')
+              .select('*')
+              .eq('unit_id', unit.id)
+              .eq('production_date', date)
+              .eq('lane_name', lane)
+              .maybeSingle();
+            newDay = refound;
+          }
+
+          if (newDay) {
+            day = newDay;
+            // Pre-populate 10 clean blank hourly rows (0s)
+            const blankHourly = Array.from({ length: 10 }, (_, i) => ({
+              production_day_id: day.id,
+              hour: i + 1,
+              input_available: 0,
+              target: 0,
+              actual: 0,
+            }));
+            await supabase.from('hourly_production').insert(blankHourly);
+          }
+        }
+
+        if (day) {
+          // 1c. Fetch all child tables in parallel
+          const [hourlyRes, opsRes, dtSumRes, dtDetRes] = await Promise.all([
+            supabase.from('hourly_production').select('*').eq('production_day_id', day.id).order('hour', { ascending: true }),
+            supabase.from('critical_operations').select('*').eq('production_day_id', day.id).order('operation_no', { ascending: true }).order('hour', { ascending: true }),
+            supabase.from('downtime_summary').select('*').eq('production_day_id', day.id).order('category', { ascending: true }).order('hour', { ascending: true }),
+            supabase.from('downtime_details').select('*').eq('production_day_id', day.id).order('id', { ascending: true }),
+          ]);
+
+          let hourly = (hourlyRes.data || []) as HourlyProduction[];
+          if (hourly.length < 10) {
+            const existingHours = new Set(hourly.map(h => h.hour));
+            const missing: any[] = [];
+            for (let h = 1; h <= 10; h++) {
+              if (!existingHours.has(h)) {
+                missing.push({
+                  production_day_id: day.id,
+                  hour: h,
+                  input_available: 0,
+                  target: 0,
+                  actual: 0,
+                });
+              }
+            }
+            if (missing.length > 0) {
+              await supabase.from('hourly_production').insert(missing);
+              hourly = [...hourly, ...missing].sort((a, b) => a.hour - b.hour);
+            }
+          }
+
+          const liveData: DashboardData = {
+            unit,
+            day,
+            hourly,
+            criticalOperations: (opsRes.data || []) as CriticalOperation[],
+            downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
+            downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
+          };
+
+          // Cache in local storage for offline resiliency
+          saveLocalData(date, lane, unitName, liveData);
+          return liveData;
+        }
+      }
+    } catch (err) {
+      console.warn('Supabase query failed, falling back to local storage cache:', err);
+    }
+  }
+
+  // 2. Check local storage if Supabase is offline or not configured
   const localKey = `${LOCAL_STORAGE_KEY_PREFIX}${unitName}_${date}_${lane}`;
   const legacyKey = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
   const storedLocal = localStorage.getItem(localKey) || (unitName === 'Unit 01' ? localStorage.getItem(legacyKey) : null);
@@ -398,233 +525,173 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
     }
   }
 
-  if (!isSupabaseConfigured || !supabase) {
-    return getLocalData(date, lane, unitName);
-  }
-
-  try {
-    // 1. Get or create Unit
-    let { data: unit, error: unitError } = await supabase
-      .from('units')
-      .select('*')
-      .eq('unit_name', unitName)
-      .maybeSingle();
-
-    if (unitError || !unit) {
-      const { data: newUnit, error: insertUnitErr } = await supabase
-        .from('units')
-        .insert({ unit_name: unitName })
-        .select()
-        .single();
-      if (insertUnitErr) {
-        console.warn('Could not insert unit in Supabase, falling back to local:', insertUnitErr);
-        return getLocalData(date, lane);
-      }
-      unit = newUnit;
-    }
-
-    // 2. Get or create production day for date + lane
-    let { data: day, error: dayError } = await supabase
-      .from('production_days')
-      .select('*')
-      .eq('unit_id', unit.id)
-      .eq('production_date', date)
-      .eq('lane_name', lane)
-      .maybeSingle();
-
-    if (dayError || !day) {
-      const laneSup = getLaneSupervisor(lane);
-      const { data: newDay, error: insertDayErr } = await supabase
-        .from('production_days')
-        .insert({
-          unit_id: unit.id,
-          production_date: date,
-          shift: 'Shift 01',
-          supervisor_name: laneSup.name,
-          supervisor_id: laneSup.id,
-          lane_name: lane,
-          worker_name: '',
-          worker_id: '',
-        })
-        .select()
-        .single();
-
-      if (insertDayErr) {
-        console.warn('Could not insert production day in Supabase, falling back to local:', insertDayErr);
-        return getLocalData(date, lane, unitName);
-      }
-      day = newDay;
-
-      // Seed clean blank hourly 10 rows (targets: 0, actuals: 0, input: 0)
-      const blankHourly = Array.from({ length: 10 }, (_, i) => ({
-        production_day_id: day.id,
-        hour: i + 1,
-        input_available: 0,
-        target: 0,
-        actual: 0,
-      }));
-
-      await supabase.from('hourly_production').insert(blankHourly);
-    }
-
-    // 3. Fetch all related tables in parallel
-    const [hourlyRes, opsRes, dtSumRes, dtDetRes] = await Promise.all([
-      supabase.from('hourly_production').select('*').eq('production_day_id', day.id).order('hour', { ascending: true }),
-      supabase.from('critical_operations').select('*').eq('production_day_id', day.id).order('operation_no', { ascending: true }).order('hour', { ascending: true }),
-      supabase.from('downtime_summary').select('*').eq('production_day_id', day.id).order('category', { ascending: true }).order('hour', { ascending: true }),
-      supabase.from('downtime_details').select('*').eq('production_day_id', day.id).order('id', { ascending: true }),
-    ]);
-
-    // Ensure 10 hourly rows are always represented
-    let hourly = (hourlyRes.data || []) as HourlyProduction[];
-    if (hourly.length < 10) {
-      const existingHours = new Set(hourly.map(h => h.hour));
-      const missing: HourlyProduction[] = [];
-      for (let h = 1; h <= 10; h++) {
-        if (!existingHours.has(h)) {
-          missing.push({
-            production_day_id: day.id,
-            hour: h,
-            input_available: 0,
-            target: 0,
-            actual: 0,
-          });
-        }
-      }
-      if (missing.length > 0) {
-        await supabase.from('hourly_production').insert(missing);
-        hourly = [...hourly, ...missing].sort((a, b) => a.hour - b.hour);
-      }
-    }
-
-    return {
-      unit,
-      day,
-      hourly,
-      criticalOperations: (opsRes.data || []) as CriticalOperation[],
-      downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
-      downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
-    };
-  } catch (err) {
-    console.error('Supabase query error, fallback to local storage:', err);
-    return getLocalData(date, lane, unitName);
-  }
+  // 3. Clean initial fallback
+  return getLocalData(date, lane, unitName);
 }
 
-// Save all dashboard data
+// Save all dashboard data with guaranteed Supabase persistence
 export async function saveDashboardData(data: DashboardData): Promise<{ success: boolean; error?: string; warning?: string }> {
   const date = data.day.production_date;
   const lane = data.day.lane_name || 'Lane 01';
   const unitName = data.unit?.unit_name || 'Unit 01';
 
-  // Always keep localStorage updated as immediate backup
+  // Always keep localStorage updated as immediate local backup
   saveLocalData(date, lane, unitName, data);
 
   if (!isSupabaseConfigured || !supabase) {
-    return { success: true };
+    return { success: true, warning: 'Saved locally. Supabase credentials not configured.' };
   }
 
   try {
-    // 1. Update Production Day Info
+    // 1. Ensure Unit exists in Supabase
     let unitId = data.unit?.id;
-    if (unitName) {
-      try {
-        const { data: existingUnit } = await supabase
-          .from('units')
-          .select('id')
-          .eq('unit_name', unitName)
-          .maybeSingle();
-        if (!existingUnit) {
-          const { data: newUnit } = await supabase
-            .from('units')
-            .insert({ unit_name: unitName })
-            .select('id')
-            .single();
-          if (newUnit) unitId = newUnit.id;
-        } else {
-          unitId = existingUnit.id;
-        }
-      } catch {
-        // ignore
-      }
+    const { data: existingUnit } = await supabase
+      .from('units')
+      .select('id')
+      .eq('unit_name', unitName)
+      .maybeSingle();
+
+    if (existingUnit?.id) {
+      unitId = existingUnit.id;
+    } else {
+      const { data: newUnit, error: unitErr } = await supabase
+        .from('units')
+        .insert({ unit_name: unitName })
+        .select('id')
+        .single();
+      if (unitErr) throw unitErr;
+      unitId = newUnit.id;
     }
 
-    const { error: dayErr } = await supabase
+    if (!unitId) throw new Error(`Could not resolve unit ID for ${unitName}`);
+
+    // 2. Ensure Production Day exists in Supabase with a valid UUID
+    let productionDayId: string | null = null;
+    const shiftVal = lane === 'Lane 01' ? (data.day.shift || 'Shift 01') : `${data.day.shift || 'Shift 01'} (${lane})`;
+
+    // Check if day already exists for this unit + date + lane
+    const { data: existingDay } = await supabase
       .from('production_days')
-      .update({
-        unit_id: unitId || data.day.unit_id,
-        shift: data.day.shift,
-        supervisor_name: data.day.supervisor_name,
-        worker_name: data.day.worker_name || '',
-        worker_id: data.day.worker_id || '',
-        lane_name: lane,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', data.day.id);
+      .select('id')
+      .eq('unit_id', unitId)
+      .eq('production_date', date)
+      .eq('lane_name', lane)
+      .maybeSingle();
 
-    if (dayErr) throw dayErr;
-
-    // 2. Upsert Hourly Production
-    for (const row of data.hourly) {
-      if (row.id && !row.id.startsWith('h-')) {
-        await supabase.from('hourly_production').update({
-          input_available: row.input_available,
-          target: row.target,
-          actual: row.actual,
+    if (existingDay?.id) {
+      productionDayId = existingDay.id;
+      const { error: updateErr } = await supabase
+        .from('production_days')
+        .update({
+          unit_id: unitId,
+          shift: shiftVal,
+          supervisor_name: data.day.supervisor_name || 'Supervisor',
+          supervisor_id: data.day.supervisor_id || 'SUP-01',
+          lane_name: lane,
+          worker_name: data.day.worker_name || '',
+          worker_id: data.day.worker_id || '',
           updated_at: new Date().toISOString(),
-        }).eq('id', row.id);
-      } else {
-        await supabase.from('hourly_production').upsert({
-          production_day_id: data.day.id,
-          hour: row.hour,
-          input_available: row.input_available,
-          target: row.target,
-          actual: row.actual,
-        }, { onConflict: 'production_day_id,hour' });
+        })
+        .eq('id', productionDayId);
+
+      if (updateErr) throw updateErr;
+    } else {
+      // Insert new production day
+      let { data: newDay, error: insertErr } = await supabase
+        .from('production_days')
+        .insert({
+          unit_id: unitId,
+          production_date: date,
+          shift: shiftVal,
+          supervisor_name: data.day.supervisor_name || 'Supervisor',
+          supervisor_id: data.day.supervisor_id || 'SUP-01',
+          lane_name: lane,
+          worker_name: data.day.worker_name || '',
+          worker_id: data.day.worker_id || '',
+        })
+        .select('id')
+        .single();
+
+      if (insertErr && insertErr.code === '23505') {
+        const { data: refound } = await supabase
+          .from('production_days')
+          .select('id')
+          .eq('unit_id', unitId)
+          .eq('production_date', date)
+          .eq('lane_name', lane)
+          .maybeSingle();
+        if (refound) newDay = refound;
       }
+
+      if (insertErr && !newDay) throw insertErr;
+      productionDayId = newDay!.id;
     }
 
-    // 3. Sync Critical Operations
-    await supabase.from('critical_operations').delete().eq('production_day_id', data.day.id);
+    if (!productionDayId) throw new Error('Failed to obtain a valid production day ID in database');
+
+    // Update day.id and unit.id with real Supabase UUIDs
+    data.day.id = productionDayId;
+    data.day.unit_id = unitId;
+    if (data.unit) data.unit.id = unitId;
+    saveLocalData(date, lane, unitName, data);
+
+    // 3. Upsert Hourly Production using onConflict: production_day_id,hour
+    for (const row of data.hourly) {
+      const { error: hErr } = await supabase.from('hourly_production').upsert({
+        production_day_id: productionDayId,
+        hour: row.hour,
+        input_available: Number(row.input_available) || 0,
+        target: Number(row.target) || 0,
+        actual: Number(row.actual) || 0,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'production_day_id,hour' });
+      if (hErr) throw hErr;
+    }
+
+    // 4. Sync Critical Operations
+    const { error: opDelErr } = await supabase.from('critical_operations').delete().eq('production_day_id', productionDayId);
+    if (opDelErr) throw opDelErr;
     if (data.criticalOperations.length > 0) {
       const opsToInsert = data.criticalOperations.map(op => ({
-        production_day_id: data.day.id,
+        production_day_id: productionDayId,
         operation_no: op.operation_no,
         operation_name: op.operation_name,
         worker_name: op.worker_name,
         worker_id: op.worker_id || '',
         hour: op.hour,
-        production: op.production,
-        target: op.target,
-        completed: op.completed || false,
+        production: Number(op.production) || 0,
+        target: Number(op.target) || 0,
+        completed: Boolean(op.completed),
         status: op.status || 'in_progress',
       }));
-      const { error: opErr } = await supabase.from('critical_operations').insert(opsToInsert);
-      if (opErr) throw opErr;
+      const { error: opsErr } = await supabase.from('critical_operations').insert(opsToInsert);
+      if (opsErr) throw opsErr;
     }
 
-    // 4. Sync Downtime Summary
-    await supabase.from('downtime_summary').delete().eq('production_day_id', data.day.id);
+    // 5. Sync Downtime Summary
+    const { error: dsDelErr } = await supabase.from('downtime_summary').delete().eq('production_day_id', productionDayId);
+    if (dsDelErr) throw dsDelErr;
     if (data.downtimeSummary.length > 0) {
       const summaryToInsert = data.downtimeSummary.map(ds => ({
-        production_day_id: data.day.id,
+        production_day_id: productionDayId,
         category: ds.category,
         hour: ds.hour,
-        minutes: ds.minutes,
+        minutes: Number(ds.minutes) || 0,
       }));
       const { error: dsErr } = await supabase.from('downtime_summary').insert(summaryToInsert);
       if (dsErr) throw dsErr;
     }
 
-    // 5. Sync Downtime Details
-    await supabase.from('downtime_details').delete().eq('production_day_id', data.day.id);
+    // 6. Sync Downtime Details
+    const { error: ddDelErr } = await supabase.from('downtime_details').delete().eq('production_day_id', productionDayId);
+    if (ddDelErr) throw ddDelErr;
     if (data.downtimeDetails.length > 0) {
       const detailsToInsert = data.downtimeDetails.map(dd => ({
-        production_day_id: data.day.id,
+        production_day_id: productionDayId,
         reason: dd.reason,
         worker_name: dd.worker_name,
         hour: dd.hour,
-        minutes: dd.minutes,
+        minutes: Number(dd.minutes) || 0,
       }));
       const { error: ddErr } = await supabase.from('downtime_details').insert(detailsToInsert);
       if (ddErr) throw ddErr;
@@ -633,11 +700,10 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
     return { success: true };
   } catch (err: any) {
     console.error('Error saving data to Supabase:', err);
-    // If Supabase has an RLS policy restriction, local storage has already saved the changes!
     if (err?.code === '42501' || err?.message?.toLowerCase().includes('row-level security') || err?.message?.toLowerCase().includes('policy')) {
       return {
         success: true,
-        warning: '✓ Changes saved locally! (To sync to Supabase cloud, run: ALTER TABLE critical_operations DISABLE ROW LEVEL SECURITY; in Supabase SQL editor)',
+        warning: '✓ Saved locally! (Run the updated schema.sql in Supabase SQL editor to enable cloud writes)',
       };
     }
     return { success: false, error: err.message || 'Failed to save changes to Supabase' };
