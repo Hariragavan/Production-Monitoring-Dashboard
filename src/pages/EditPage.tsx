@@ -16,7 +16,6 @@ import {
   getAvailableSupervisors,
   getLaneSupervisor,
   setLaneSupervisor,
-  clearAllLocalDemoData,
   type SupervisorItem,
 } from '../lib/dataService';
 import type { DashboardData } from '../types';
@@ -42,7 +41,6 @@ import {
   UserCheck,
   Building2,
   Users,
-  RotateCcw,
 } from 'lucide-react';
 
 type TabKey = 'basic' | 'workers' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
@@ -256,22 +254,6 @@ export const EditPage: React.FC = () => {
           >
             <Tv className="w-4 h-4 text-cyan-400" />
             <span>Dashboard</span>
-          </button>
-
-          {/* Reset Clean Data */}
-          <button
-            onClick={() => {
-              if (window.confirm('Clear all local demo cache and start fresh with clean blank data?')) {
-                clearAllLocalDemoData();
-                window.location.reload();
-              }
-            }}
-            id="btn-reset-clean-data"
-            title="Clear all demo cache and start with fresh blank data"
-            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-bold border border-slate-600 transition active:scale-95 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">Reset Clean Data</span>
           </button>
 
           {/* Save Changes Button */}
