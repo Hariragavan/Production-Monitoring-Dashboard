@@ -9,19 +9,28 @@ interface CriticalOperationsEditorProps {
   unitName?: string;
 }
 
-const STANDARD_OPERATIONS = [
+const DEFAULT_OP_SEQUENCE = [
+  'SHOULDER TOP STITCH',
+  'BOTTOM RIB ATTACH',
+  'SLEEVE ATTACH',
   'SLEEVE ATTACH',
   'SIDE SEAM',
-  'NECK RIB ATTACH',
-  'BOTTOM HEM',
-  'COLLAR ATTACH',
-  'CUFF ATTACH',
-  'POCKET ATTACH',
-  'BUTTON STITCH',
-  'SHOULDER JOIN',
-  'LABEL ATTACH',
-  'OVERLOCK',
-  'FLATLOCK',
+  'SHOULDER ATTACH',
+  'SHOULDER ATTACH',
+  'BOTTOM RIB TOP STITCH',
+  'SLEEVE TOP STITCH',
+  'NECK TOP STITCH',
+];
+
+const STANDARD_OPERATIONS = [
+  'SHOULDER TOP STITCH',
+  'BOTTOM RIB ATTACH',
+  'SLEEVE ATTACH',
+  'SIDE SEAM',
+  'SHOULDER ATTACH',
+  'BOTTOM RIB TOP STITCH',
+  'SLEEVE TOP STITCH',
+  'NECK TOP STITCH',
 ];
 
 export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> = ({
@@ -98,7 +107,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
         : 1;
 
     const defaultWorker = availableWorkers[(nextNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
-    const defaultOp = STANDARD_OPERATIONS[(nextNo - 1) % STANDARD_OPERATIONS.length];
+    const defaultOp = DEFAULT_OP_SEQUENCE[(nextNo - 1) % DEFAULT_OP_SEQUENCE.length];
 
     const newOp: CriticalOperation = {
       id: `co-${nextNo}-${activeHour}-${Date.now()}`,
