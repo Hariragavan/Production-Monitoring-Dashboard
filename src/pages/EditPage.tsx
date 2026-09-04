@@ -7,6 +7,7 @@ import {
   getAvailableLanes,
   addAvailableLane,
   deleteAvailableLane,
+  renameAvailableLane,
   syncLanesFromSupabase,
   getAvailableUnits,
   addAvailableUnit,
@@ -61,8 +62,11 @@ export const EditPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
   const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
-  const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
-  const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
+  const [selectedLane, setSelectedLane] = useState<string>(() => {
+    const lanes = getAvailableLanes('Unit 01');
+    return lanes[0] || 'Lane 01';
+  });
+  const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
   const [availableSupervisors, setAvailableSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
@@ -78,16 +82,16 @@ export const EditPage: React.FC = () => {
     }
   }, [isAuthenticated, authLoading, navigate]);
 
-  // Sync lanes, units, and workers from Supabase on mount across all devices
+  // Sync lanes, units, and workers for selectedUnit from Supabase across all devices
   useEffect(() => {
-    syncLanesFromSupabase().then((lanes) => {
+    syncLanesFromSupabase(selectedUnit).then((lanes) => {
       if (lanes && lanes.length > 0) setAvailableLanes(lanes);
     });
     syncUnitsFromSupabase().then((units) => {
       if (units && units.length > 0) setAvailableUnits(units);
     });
-    syncWorkersFromSupabase();
-  }, []);
+    syncWorkersFromSupabase(selectedUnit);
+  }, [selectedUnit]);
 
   // Real-time listener for units update
   useEffect(() => {
@@ -100,16 +104,85 @@ export const EditPage: React.FC = () => {
     return () => window.removeEventListener('production-units-updated', handleUnitsUpdated);
   }, []);
 
-  // Real-time listener for lanes update
+  // Real-time listener for lanes update (scoped to selectedUnit)
   useEffect(() => {
     const handleLanesUpdated = (e: any) => {
-      if (e.detail?.lanes) {
+      if (e.detail?.lanes && (!e.detail?.unitName || e.detail?.unitName === selectedUnit)) {
         setAvailableLanes(e.detail.lanes);
       }
     };
     window.addEventListener('production-lanes-updated', handleLanesUpdated);
     return () => window.removeEventListener('production-lanes-updated', handleLanesUpdated);
-  }, []);
+  }, [selectedUnit]);
+
+  // Unit switch handler ensuring unit-scoped lanes & workers are loaded
+  const handleUnitChange = (newUnit: string) => {
+    setSelectedUnit(newUnit);
+    const lanesForUnit = getAvailableLanes(newUnit);
+    setAvailableLanes(lanesForUnit);
+    const nextLane = lanesForUnit.includes(selectedLane) ? selectedLane : (lanesForUnit[0] || 'Lane 01');
+    setSelectedLane(nextLane);
+    syncLanesFromSupabase(newUnit).then((lanes) => {
+      if (lanes && lanes.length > 0) {
+        setAvailableLanes(lanes);
+        if (!lanes.includes(nextLane)) {
+          setSelectedLane(lanes[0]);
+        }
+      }
+    });
+    syncWorkersFromSupabase(newUnit);
+    setData((prev) => ({
+      ...prev,
+      unit: {
+        id: `unit-${newUnit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        unit_name: newUnit,
+      },
+      day: {
+        ...prev.day,
+        lane_name: nextLane,
+      },
+    }));
+  };
+
+  const handleAddLane = (newLane: string) => {
+    const updated = addAvailableLane(newLane, selectedUnit);
+    setAvailableLanes(updated);
+    setSelectedLane(newLane);
+  };
+
+  const handleDeleteLane = (laneToDelete: string) => {
+    const updated = deleteAvailableLane(laneToDelete, selectedUnit);
+    setAvailableLanes(updated);
+    if (selectedLane === laneToDelete && updated.length > 0) {
+      setSelectedLane(updated[0]);
+    }
+  };
+
+  const handleRenameLane = async (oldName: string, newName: string) => {
+    const result = await renameAvailableLane(oldName, newName, selectedUnit);
+    if (result.success) {
+      setAvailableLanes(result.lanes);
+      if (selectedLane === oldName) {
+        setSelectedLane(newName);
+        setData((prev) => ({
+          ...prev,
+          day: {
+            ...prev.day,
+            lane_name: newName,
+          },
+        }));
+      }
+      setSaveMessage(`✓ Renamed "${oldName}" to "${newName}" in ${selectedUnit}`);
+      setSaveStatus('success');
+      setTimeout(() => {
+        setSaveStatus('idle');
+        setSaveMessage('');
+      }, 4000);
+    } else {
+      setSaveMessage(`Failed to rename lane: ${result.error}`);
+      setSaveStatus('error');
+    }
+  };
 
   // Real-time listener for supervisors update
   useEffect(() => {
@@ -318,17 +391,7 @@ export const EditPage: React.FC = () => {
                 <select
                   id="header-unit-select"
                   value={selectedUnit}
-                  onChange={(e) => {
-                    const newUnit = e.target.value;
-                    setSelectedUnit(newUnit);
-                    setData((prev) => ({
-                      ...prev,
-                      unit: {
-                        id: `unit-${newUnit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-                        unit_name: newUnit,
-                      },
-                    }));
-                  }}
+                  onChange={(e) => handleUnitChange(e.target.value)}
                   className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer"
                 >
                   {availableUnits.map((unit) => (
@@ -544,51 +607,26 @@ export const EditPage: React.FC = () => {
               <BasicInfoEditor
                 unitName={selectedUnit}
                 availableUnits={availableUnits}
-                onUnitChange={(unit) => {
-                  setSelectedUnit(unit);
-                  setData((prev) => ({
-                    ...prev,
-                    unit: {
-                      id: `unit-${unit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-                      unit_name: unit,
-                    },
-                  }));
-                }}
+                onUnitChange={handleUnitChange}
                 onAddUnit={(unit) => {
                   const updated = addAvailableUnit(unit);
                   setAvailableUnits(updated);
-                  setSelectedUnit(unit);
-                  setData((prev) => ({
-                    ...prev,
-                    unit: {
-                      id: `unit-${unit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
-                      unit_name: unit,
-                    },
-                  }));
+                  handleUnitChange(unit);
                 }}
                 onDeleteUnit={(unit) => {
                   const updated = deleteAvailableUnit(unit);
                   setAvailableUnits(updated);
                   if (selectedUnit === unit && updated.length > 0) {
-                    setSelectedUnit(updated[0]);
+                    handleUnitChange(updated[0]);
                   }
                 }}
                 day={data.day}
                 availableLanes={availableLanes}
                 selectedLane={selectedLane}
                 onLaneChange={setSelectedLane}
-                onAddLane={(lane) => {
-                  const updated = addAvailableLane(lane);
-                  setAvailableLanes(updated);
-                  setSelectedLane(lane);
-                }}
-                onDeleteLane={(lane) => {
-                  const updated = deleteAvailableLane(lane);
-                  setAvailableLanes(updated);
-                  if (selectedLane === lane && updated.length > 0) {
-                    setSelectedLane(updated[0]);
-                  }
-                }}
+                onAddLane={handleAddLane}
+                onDeleteLane={handleDeleteLane}
+                onRenameLane={handleRenameLane}
                 onChange={(updatedDay) => {
                   setData((prev) => ({
                     ...prev,
@@ -600,7 +638,7 @@ export const EditPage: React.FC = () => {
               />
             )}
 
-            {activeTab === 'workers' && <WorkersEditor />}
+            {activeTab === 'workers' && <WorkersEditor unitName={selectedUnit} />}
 
             {activeTab === 'hourly' && (
               <HourlyProductionEditor
@@ -625,6 +663,7 @@ export const EditPage: React.FC = () => {
                     criticalOperations: updatedOps,
                   }));
                 }}
+                unitName={selectedUnit}
               />
             )}
 
@@ -649,6 +688,7 @@ export const EditPage: React.FC = () => {
                     downtimeDetails: updatedDetails,
                   }));
                 }}
+                unitName={selectedUnit}
               />
             )}
           </div>

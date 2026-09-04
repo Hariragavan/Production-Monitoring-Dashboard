@@ -23,22 +23,42 @@ export const DashboardPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
   const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
-  const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
+  const [selectedLane, setSelectedLane] = useState<string>(() => {
+    const lanes = getAvailableLanes('Unit 01');
+    return lanes[0] || 'Lane 01';
+  });
   const [selectedHour] = useState<number>(4); // Default to current 4th hour
-  const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
+  const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
-  // Sync available lanes and units from database across all devices
+  // Sync available lanes for selectedUnit and units from database across all devices
   useEffect(() => {
-    syncLanesFromSupabase().then((lanes) => {
+    syncLanesFromSupabase(selectedUnit).then((lanes) => {
       if (lanes && lanes.length > 0) setAvailableLanes(lanes);
     });
     syncUnitsFromSupabase().then((units) => {
       if (units && units.length > 0) setAvailableUnits(units);
     });
-  }, []);
+  }, [selectedUnit]);
+
+  // Unit change handler ensuring lanes are switched to the unit
+  const handleUnitChange = (newUnit: string) => {
+    setSelectedUnit(newUnit);
+    const lanes = getAvailableLanes(newUnit);
+    setAvailableLanes(lanes);
+    const nextLane = lanes.includes(selectedLane) ? selectedLane : (lanes[0] || 'Lane 01');
+    setSelectedLane(nextLane);
+    syncLanesFromSupabase(newUnit).then((synced) => {
+      if (synced && synced.length > 0) {
+        setAvailableLanes(synced);
+        if (!synced.includes(nextLane)) {
+          setSelectedLane(synced[0]);
+        }
+      }
+    });
+  };
 
   const loadData = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -69,16 +89,16 @@ export const DashboardPage: React.FC = () => {
     return () => window.removeEventListener('production-units-updated', handleUnitsUpdated);
   }, []);
 
-  // Real-time listener for lanes update
+  // Real-time listener for lanes update (scoped to selectedUnit)
   useEffect(() => {
     const handleLanesUpdated = (e: any) => {
-      if (e.detail?.lanes) {
+      if (e.detail?.lanes && (!e.detail?.unitName || e.detail?.unitName === selectedUnit)) {
         setAvailableLanes(e.detail.lanes);
       }
     };
     window.addEventListener('production-lanes-updated', handleLanesUpdated);
     return () => window.removeEventListener('production-lanes-updated', handleLanesUpdated);
-  }, []);
+  }, [selectedUnit]);
 
   // Real-time listener for local/cross-tab data updates
   useEffect(() => {
@@ -118,7 +138,7 @@ export const DashboardPage: React.FC = () => {
       <DashboardHeader
         unitName={selectedUnit}
         availableUnits={availableUnits}
-        onUnitChange={setSelectedUnit}
+        onUnitChange={handleUnitChange}
         productionDate={selectedDate}
         supervisorName={data.day?.supervisor_name || 'Supervisor'}
         supervisorId={data.day?.supervisor_id}

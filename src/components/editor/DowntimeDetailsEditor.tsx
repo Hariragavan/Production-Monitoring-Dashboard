@@ -7,6 +7,7 @@ import { formatDuration, getAvailableWorkers, type WorkerItem } from '../../lib/
 interface DowntimeDetailsEditorProps {
   downtimeDetails: DowntimeDetailItem[];
   onChange: (details: DowntimeDetailItem[]) => void;
+  unitName?: string;
 }
 
 const REASONS: DowntimeCategory[] = [
@@ -21,18 +22,22 @@ const REASONS: DowntimeCategory[] = [
 export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
   downtimeDetails,
   onChange,
+  unitName = 'Unit 01',
 }) => {
   const [activeHour, setActiveHour] = useState<number>(1);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
-  const [availableWorkers, setAvailableWorkers] = useState<WorkerItem[]>(getAvailableWorkers);
+  const [availableWorkers, setAvailableWorkers] = useState<WorkerItem[]>(() => getAvailableWorkers(unitName));
 
   useEffect(() => {
+    setAvailableWorkers(getAvailableWorkers(unitName));
     const handleWorkersUpdated = (e: any) => {
-      if (e.detail?.workers) setAvailableWorkers(e.detail.workers);
+      if (e.detail?.workers && (!e.detail?.unitName || e.detail?.unitName === unitName)) {
+        setAvailableWorkers(e.detail.workers);
+      }
     };
     window.addEventListener('production-workers-updated', handleWorkersUpdated);
     return () => window.removeEventListener('production-workers-updated', handleWorkersUpdated);
-  }, []);
+  }, [unitName]);
 
   // Suffix helper
   const getSuffix = (h: number) => {

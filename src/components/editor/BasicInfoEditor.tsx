@@ -10,6 +10,9 @@ import {
   CheckCircle2,
   Users,
   ShieldCheck,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react';
 import {
   getAvailableWorkers,
@@ -34,6 +37,7 @@ interface BasicInfoEditorProps {
   onLaneChange: (lane: string) => void;
   onAddLane: (newLane: string) => void;
   onDeleteLane: (lane: string) => void;
+  onRenameLane?: (oldName: string, newName: string) => Promise<void> | void;
   onChange: (updatedDay: Partial<ProductionDay>) => void;
   onDateChange: (newDate: string) => void;
   onNavigateToWorkers?: () => void;
@@ -51,6 +55,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   onLaneChange,
   onAddLane,
   onDeleteLane,
+  onRenameLane,
   onChange,
   onDateChange,
   onNavigateToWorkers,
@@ -65,8 +70,13 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   const [newLaneInput, setNewLaneInput] = useState('');
   const [laneError, setLaneError] = useState('');
 
-  // Employee / Worker Directory state
-  const [workers, setWorkers] = useState<WorkerItem[]>(getAvailableWorkers);
+  // Lane renaming state
+  const [editingLane, setEditingLane] = useState<string | null>(null);
+  const [renamedLaneInput, setRenamedLaneInput] = useState('');
+  const [isRenamingLane, setIsRenamingLane] = useState(false);
+
+  // Employee / Worker Directory state (scoped to unitName)
+  const [workers, setWorkers] = useState<WorkerItem[]>(() => getAvailableWorkers(unitName));
 
   // Supervisor Directory state
   const [supervisors, setSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
@@ -74,14 +84,16 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   const [newSupervisorId, setNewSupervisorId] = useState('');
   const [supervisorFeedback, setSupervisorFeedback] = useState<string | null>(null);
 
-  // Listen to workers update event
+  // Listen to workers update event and reload when unitName changes
   useEffect(() => {
+    setWorkers(getAvailableWorkers(unitName));
     const handleWorkersUpdated = (e: any) => {
-      if (e.detail?.workers) setWorkers(e.detail.workers);
+      if (e.detail?.workers && (!e.detail?.unitName || e.detail?.unitName === unitName)) {
+        setWorkers(e.detail.workers);
+      }
     };
     window.addEventListener('production-workers-updated', handleWorkersUpdated);
-    return () => window.removeEventListener('production-workers-updated', handleWorkersUpdated);
-  }, []);
+  }, [unitName]);
 
   // Listen to supervisors update event
   useEffect(() => {
@@ -135,6 +147,38 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
     onChange({ lane_name: trimmed });
     setNewLaneInput('');
     setLaneError('');
+  };
+
+  const handleStartRenameLane = (lane: string) => {
+    setEditingLane(lane);
+    setRenamedLaneInput(lane);
+    setLaneError('');
+  };
+
+  const handleSaveRenameLane = async (oldName: string) => {
+    const trimmed = renamedLaneInput.trim();
+    if (!trimmed) {
+      setLaneError('Lane name cannot be empty');
+      return;
+    }
+    if (trimmed === oldName) {
+      setEditingLane(null);
+      return;
+    }
+    if (availableLanes.includes(trimmed)) {
+      setLaneError(`Lane "${trimmed}" already exists`);
+      return;
+    }
+
+    if (onRenameLane) {
+      setIsRenamingLane(true);
+      try {
+        await onRenameLane(oldName, trimmed);
+      } finally {
+        setIsRenamingLane(false);
+      }
+    }
+    setEditingLane(null);
   };
 
   // Supervisor Add Handler
@@ -329,7 +373,47 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
           <div className="flex flex-wrap gap-2">
             {availableLanes.map((lane) => {
               const isSelected = selectedLane === lane;
+              const isEditing = editingLane === lane;
               const laneSup = getLaneSupervisor(lane);
+
+              if (isEditing) {
+                return (
+                  <div
+                    key={lane}
+                    className="inline-flex items-center gap-1.5 p-1 bg-white rounded-lg border-2 border-cyan-500 shadow-sm"
+                  >
+                    <input
+                      type="text"
+                      value={renamedLaneInput}
+                      onChange={(e) => setRenamedLaneInput(e.target.value)}
+                      className="w-28 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-cyan-500"
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveRenameLane(lane);
+                        if (e.key === 'Escape') setEditingLane(null);
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={isRenamingLane}
+                      onClick={() => handleSaveRenameLane(lane)}
+                      className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition cursor-pointer disabled:opacity-50"
+                      title="Save Lane Name"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isRenamingLane}
+                      onClick={() => setEditingLane(null)}
+                      className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded transition cursor-pointer"
+                      title="Cancel"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              }
 
               return (
                 <div
@@ -361,17 +445,37 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
                     </div>
                   </button>
 
-                  {/* Remove lane button for custom lanes */}
-                  {availableLanes.length > 1 && !['Lane 01', 'Lane 02'].includes(lane) && (
+                  <div className="flex items-center gap-0.5 ml-1 border-l border-slate-300/40 pl-1">
+                    {/* Rename Lane button */}
                     <button
                       type="button"
-                      onClick={() => onDeleteLane(lane)}
-                      title={`Remove ${lane}`}
-                      className="ml-1 text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5"
+                      onClick={() => handleStartRenameLane(lane)}
+                      title={`Rename ${lane}`}
+                      className={`p-1 rounded transition cursor-pointer ${
+                        isSelected
+                          ? 'text-cyan-200 hover:text-white hover:bg-white/10'
+                          : 'text-slate-400 hover:text-cyan-700 hover:bg-slate-200'
+                      }`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Pencil className="w-3 h-3" />
                     </button>
-                  )}
+
+                    {/* Remove lane button for custom lanes */}
+                    {availableLanes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteLane(lane)}
+                        title={`Remove ${lane}`}
+                        className={`p-1 rounded transition cursor-pointer ${
+                          isSelected
+                            ? 'text-rose-300 hover:text-rose-100 hover:bg-rose-500/20'
+                            : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                        }`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
