@@ -1,6 +1,6 @@
 import React from 'react';
 import type { CriticalOperation } from '../../types';
-import { INITIAL_DEMO_DATA } from '../../lib/seedData';
+import { Activity } from 'lucide-react';
 
 interface CriticalOperationsTableProps {
   operations?: CriticalOperation[];
@@ -13,8 +13,24 @@ interface GroupedRow {
 }
 
 export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = ({ operations }) => {
-  // Fallback to demo operations if operations is undefined or empty
-  const effectiveOps = (operations && operations.length > 0) ? operations : INITIAL_DEMO_DATA.criticalOperations;
+  const effectiveOps = operations || [];
+
+  if (effectiveOps.length === 0) {
+    return (
+      <div className="w-full bg-white shadow-xs border border-slate-300 rounded-sm overflow-hidden">
+        <div className="bg-[#184e68] text-white px-2.5 py-1 flex items-center justify-between text-xs font-black tracking-wider uppercase">
+          <span>Critical Operations Performance</span>
+          <span className="text-[10px] text-cyan-200 font-semibold lowercase tracking-normal">
+            (green: ahead &bull; yellow: on target &bull; red: below target)
+          </span>
+        </div>
+        <div className="p-5 text-center text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5">
+          <Activity className="w-5 h-5 text-slate-300" />
+          <span>No critical operations recorded yet. Go to Edit Page to add operation entries.</span>
+        </div>
+      </div>
+    );
+  }
 
   // Group operations by operation_no
   const rowsMap = new Map<number, GroupedRow>();

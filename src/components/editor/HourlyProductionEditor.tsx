@@ -17,8 +17,8 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
     const existing = hourly.find(h => h.hour === hourNum);
     return existing || {
       hour: hourNum,
-      input_available: 200,
-      target: 150,
+      input_available: 0,
+      target: 0,
       actual: 0,
     };
   });

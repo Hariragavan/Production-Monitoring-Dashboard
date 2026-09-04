@@ -39,8 +39,8 @@ export const HourlyProductionChart: React.FC<HourlyProductionChartProps> = ({ ho
     const hourNum = index + 1;
     const found = hourly.find(h => h.hour === hourNum) || {
       hour: hourNum,
-      input_available: 200,
-      target: 150,
+      input_available: 0,
+      target: 0,
       actual: 0,
     };
 

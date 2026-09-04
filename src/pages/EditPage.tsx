@@ -13,11 +13,13 @@ import {
   getAvailableSupervisors,
   getLaneSupervisor,
   setLaneSupervisor,
+  clearAllLocalDemoData,
   type SupervisorItem,
 } from '../lib/dataService';
 import type { DashboardData } from '../types';
 import { INITIAL_DEMO_DATA } from '../lib/seedData';
 import { BasicInfoEditor } from '../components/editor/BasicInfoEditor';
+import { WorkersEditor } from '../components/editor/WorkersEditor';
 import { HourlyProductionEditor } from '../components/editor/HourlyProductionEditor';
 import { CriticalOperationsEditor } from '../components/editor/CriticalOperationsEditor';
 import { DowntimeSummaryEditor } from '../components/editor/DowntimeSummaryEditor';
@@ -36,9 +38,11 @@ import {
   Layers,
   UserCheck,
   Building2,
+  Users,
+  RotateCcw,
 } from 'lucide-react';
 
-type TabKey = 'basic' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
+type TabKey = 'basic' | 'workers' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
 
 // Local date formatter avoiding UTC shifts
 const formatLocalDate = (d: Date): string => {
@@ -238,6 +242,22 @@ export const EditPage: React.FC = () => {
           >
             <Tv className="w-4 h-4 text-cyan-400" />
             <span>Dashboard</span>
+          </button>
+
+          {/* Reset Clean Data */}
+          <button
+            onClick={() => {
+              if (window.confirm('Clear all local demo cache and start fresh with clean blank data?')) {
+                clearAllLocalDemoData();
+                window.location.reload();
+              }
+            }}
+            id="btn-reset-clean-data"
+            title="Clear all demo cache and start with fresh blank data"
+            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-bold border border-slate-600 transition active:scale-95 cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Reset Clean Data</span>
           </button>
 
           {/* Save Changes Button */}
@@ -461,6 +481,18 @@ export const EditPage: React.FC = () => {
             <span>Basic Info</span>
           </button>
           <button
+            onClick={() => setActiveTab('workers')}
+            id="tab-btn-workers"
+            className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              activeTab === 'workers'
+                ? 'bg-cyan-700 text-white shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Workers Directory</span>
+          </button>
+          <button
             onClick={() => setActiveTab('hourly')}
             className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
               activeTab === 'hourly'
@@ -568,8 +600,11 @@ export const EditPage: React.FC = () => {
                   }));
                 }}
                 onDateChange={handleDateSelect}
+                onNavigateToWorkers={() => setActiveTab('workers')}
               />
             )}
+
+            {activeTab === 'workers' && <WorkersEditor />}
 
             {activeTab === 'hourly' && (
               <HourlyProductionEditor

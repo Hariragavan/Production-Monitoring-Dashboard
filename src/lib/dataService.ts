@@ -1,6 +1,6 @@
 import { supabase, isSupabaseConfigured } from './supabase';
 import type { DashboardData, HourlyProduction, CriticalOperation, DowntimeSummaryItem, DowntimeDetailItem } from '../types';
-import { INITIAL_DEMO_DATA, getSeedDataForLane } from './seedData';
+import { getSeedDataForLane } from './seedData';
 
 const LOCAL_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_data_';
 
@@ -131,33 +131,57 @@ export function deleteAvailableUnit(unitToDelete: string): string[] {
 export interface WorkerItem {
   name: string;
   id: string;
+  role?: string;
+  department?: string;
 }
 
-const DEFAULT_WORKERS: WorkerItem[] = [
-  { name: 'SUNIL', id: 'EMP-101' },
-  { name: 'MAMATA', id: 'EMP-102' },
-  { name: 'UMESH', id: 'EMP-103' },
-  { name: 'VIKASH', id: 'EMP-104' },
-  { name: 'LAKSHMI', id: 'EMP-105' },
-  { name: 'MAYA', id: 'EMP-106' },
-  { name: 'KAILASH', id: 'EMP-107' },
-  { name: 'RAGHU', id: 'EMP-108' },
-  { name: 'GOVIN', id: 'EMP-109' },
-  { name: 'MAHESH', id: 'EMP-110' },
-  { name: 'DINESH', id: 'EMP-111' },
-  { name: 'SHIVO', id: 'EMP-112' },
-  { name: 'MINITA', id: 'EMP-113' },
-  { name: 'RAKESH', id: 'EMP-114' },
-];
+// Clean slate: no demo workers
+const DEFAULT_WORKERS: WorkerItem[] = [];
 
 const WORKERS_STORAGE_KEY = 'sup_tv_dashboard_workers';
+
+// One-time initialization to clear old demo cache in user's browser
+if (typeof window !== 'undefined') {
+  try {
+    if (!localStorage.getItem('sup_tv_dashboard_demo_cleared_v2')) {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith(LOCAL_STORAGE_KEY_PREFIX) || key === WORKERS_STORAGE_KEY)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+      localStorage.setItem('sup_tv_dashboard_demo_cleared_v2', 'true');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export function clearAllLocalDemoData(): void {
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith(LOCAL_STORAGE_KEY_PREFIX) || key === WORKERS_STORAGE_KEY)) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    window.dispatchEvent(new CustomEvent('production-data-updated', { detail: {} }));
+    window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: [] } }));
+  } catch (err) {
+    console.warn('Error clearing local demo data:', err);
+  }
+}
 
 export function getAvailableWorkers(): WorkerItem[] {
   try {
     const stored = localStorage.getItem(WORKERS_STORAGE_KEY);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch {
     // ignore
@@ -169,9 +193,11 @@ export function addAvailableWorker(worker: WorkerItem): WorkerItem[] {
   const current = getAvailableWorkers();
   const trimmedName = worker.name.trim().toUpperCase();
   const trimmedId = worker.id.trim().toUpperCase();
+  const trimmedRole = worker.role?.trim();
+  const trimmedDept = worker.department?.trim();
   if (!trimmedName || !trimmedId) return current;
-  if (current.some(w => w.name === trimmedName || w.id === trimmedId)) return current;
-  const updated = [...current, { name: trimmedName, id: trimmedId }];
+  if (current.some(w => w.id === trimmedId)) return current;
+  const updated = [...current, { name: trimmedName, id: trimmedId, role: trimmedRole, department: trimmedDept }];
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
   return updated;
@@ -179,7 +205,6 @@ export function addAvailableWorker(worker: WorkerItem): WorkerItem[] {
 
 export function deleteAvailableWorker(workerId: string): WorkerItem[] {
   const current = getAvailableWorkers();
-  if (current.length <= 1) return current;
   const updated = current.filter(w => w.id !== workerId);
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
@@ -408,50 +433,38 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
       .maybeSingle();
 
     if (dayError || !day) {
-      // Seed if 2026-09-01 Lane 01 or create blank
-      const supervisor = date === '2026-09-01' ? 'R. K. Sharma' : 'Supervisor';
+      const laneSup = getLaneSupervisor(lane);
       const { data: newDay, error: insertDayErr } = await supabase
         .from('production_days')
         .insert({
           unit_id: unit.id,
           production_date: date,
           shift: 'Shift 01',
-          supervisor_name: supervisor,
+          supervisor_name: laneSup.name,
+          supervisor_id: laneSup.id,
           lane_name: lane,
-          worker_name: 'Sunil Kumar',
-          worker_id: 'EMP-101',
+          worker_name: '',
+          worker_id: '',
         })
         .select()
         .single();
 
       if (insertDayErr) {
         console.warn('Could not insert production day in Supabase, falling back to local:', insertDayErr);
-        return getLocalData(date, lane);
+        return getLocalData(date, lane, unitName);
       }
       day = newDay;
 
-      // Seed hourly 10 rows
-      const seedHourly = date === '2026-09-01'
-        ? INITIAL_DEMO_DATA.hourly.map(h => ({ ...h, production_day_id: day.id, id: undefined }))
-        : Array.from({ length: 10 }, (_, i) => ({
-            production_day_id: day.id,
-            hour: i + 1,
-            input_available: 200,
-            target: 150,
-            actual: 0,
-          }));
+      // Seed clean blank hourly 10 rows (targets: 0, actuals: 0, input: 0)
+      const blankHourly = Array.from({ length: 10 }, (_, i) => ({
+        production_day_id: day.id,
+        hour: i + 1,
+        input_available: 0,
+        target: 0,
+        actual: 0,
+      }));
 
-      await supabase.from('hourly_production').insert(seedHourly);
-
-      if (date === '2026-09-01') {
-        const seedOps = INITIAL_DEMO_DATA.criticalOperations.map(o => ({ ...o, production_day_id: day.id, id: undefined }));
-        const seedDs = INITIAL_DEMO_DATA.downtimeSummary.map(d => ({ ...d, production_day_id: day.id, id: undefined }));
-        const seedDd = INITIAL_DEMO_DATA.downtimeDetails.map(d => ({ ...d, production_day_id: day.id, id: undefined }));
-
-        await supabase.from('critical_operations').insert(seedOps);
-        await supabase.from('downtime_summary').insert(seedDs);
-        await supabase.from('downtime_details').insert(seedDd);
-      }
+      await supabase.from('hourly_production').insert(blankHourly);
     }
 
     // 3. Fetch all related tables in parallel
@@ -472,8 +485,8 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
           missing.push({
             production_day_id: day.id,
             hour: h,
-            input_available: 200,
-            target: 150,
+            input_available: 0,
+            target: 0,
             actual: 0,
           });
         }
@@ -484,21 +497,13 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
       }
     }
 
-    const fallbackLaneData = getSeedDataForLane(lane, date);
-
     return {
       unit,
       day,
       hourly,
-      criticalOperations: (opsRes.data && opsRes.data.length > 0)
-        ? (opsRes.data as CriticalOperation[])
-        : (fallbackLaneData?.criticalOperations || INITIAL_DEMO_DATA.criticalOperations),
-      downtimeSummary: (dtSumRes.data && dtSumRes.data.length > 0)
-        ? (dtSumRes.data as DowntimeSummaryItem[])
-        : (fallbackLaneData?.downtimeSummary || INITIAL_DEMO_DATA.downtimeSummary),
-      downtimeDetails: (dtDetRes.data && dtDetRes.data.length > 0)
-        ? (dtDetRes.data as DowntimeDetailItem[])
-        : (fallbackLaneData?.downtimeDetails || INITIAL_DEMO_DATA.downtimeDetails),
+      criticalOperations: (opsRes.data || []) as CriticalOperation[],
+      downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
+      downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
     };
   } catch (err) {
     console.error('Supabase query error, fallback to local storage:', err);

@@ -4,7 +4,6 @@ import {
   Building2,
   Calendar,
   UserCheck,
-  IdCard,
   Layers,
   Plus,
   Trash2,
@@ -14,8 +13,6 @@ import {
 } from 'lucide-react';
 import {
   getAvailableWorkers,
-  addAvailableWorker,
-  deleteAvailableWorker,
   getAvailableSupervisors,
   addAvailableSupervisor,
   deleteAvailableSupervisor,
@@ -39,6 +36,7 @@ interface BasicInfoEditorProps {
   onDeleteLane: (lane: string) => void;
   onChange: (updatedDay: Partial<ProductionDay>) => void;
   onDateChange: (newDate: string) => void;
+  onNavigateToWorkers?: () => void;
 }
 
 export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
@@ -55,6 +53,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   onDeleteLane,
   onChange,
   onDateChange,
+  onNavigateToWorkers,
 }) => {
   // Manufacturing Unit form state
   const [newUnitInput, setNewUnitInput] = useState('');
@@ -68,9 +67,6 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
 
   // Employee / Worker Directory state
   const [workers, setWorkers] = useState<WorkerItem[]>(getAvailableWorkers);
-  const [newWorkerName, setNewWorkerName] = useState('');
-  const [newWorkerId, setNewWorkerId] = useState('');
-  const [workerFeedback, setWorkerFeedback] = useState<string | null>(null);
 
   // Supervisor Directory state
   const [supervisors, setSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
@@ -139,27 +135,6 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
     onChange({ lane_name: trimmed });
     setNewLaneInput('');
     setLaneError('');
-  };
-
-  // Employee Add Handler
-  const handleAddWorker = (e: React.FormEvent) => {
-    e.preventDefault();
-    const name = newWorkerName.trim().toUpperCase();
-    const id = newWorkerId.trim().toUpperCase();
-    if (!name || !id) return;
-
-    const updated = addAvailableWorker({ name, id });
-    setWorkers(updated);
-    setNewWorkerName('');
-    setNewWorkerId('');
-    setWorkerFeedback(`✓ Added employee ${name} (${id})`);
-    setTimeout(() => setWorkerFeedback(null), 3000);
-  };
-
-  // Employee Delete Handler
-  const handleDeleteWorker = (id: string) => {
-    const updated = deleteAvailableWorker(id);
-    setWorkers(updated);
   };
 
   // Supervisor Add Handler
@@ -570,104 +545,36 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
         </div>
       </div>
 
-      {/* 4. EMPLOYEE / WORKER MASTER DIRECTORY */}
+      {/* 4. WORKER / OPERATOR DIRECTORY LINK */}
       <div className="pt-2">
-        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200">
-          <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Users className="w-5 h-5 text-cyan-700" />
-              <span>Employee &amp; Operator Directory</span>
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Register new workers with Name &amp; ID. They automatically appear across all Critical Operations and Downtime dropdowns.
-            </p>
+        <div className="p-4 bg-gradient-to-r from-slate-50 to-cyan-50/40 rounded-xl border border-cyan-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-cyan-700 text-white flex items-center justify-center shrink-0 shadow-sm mt-0.5 sm:mt-0">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                <span>Workers &amp; Factory Operators Directory</span>
+                <span className="px-2 py-0.5 bg-cyan-100 text-cyan-800 text-[10px] font-black rounded-full uppercase">
+                  {workers.length} Registered
+                </span>
+              </h4>
+              <p className="text-xs text-slate-600 mt-0.5 max-w-xl">
+                Manage factory workers, operators, roles (Stitching, Quality, Ironing), and departments in the dedicated tab. All registered operators seamlessly sync with Critical Operations and Downtime dropdowns.
+              </p>
+            </div>
           </div>
 
-          {workerFeedback && (
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300 animate-in fade-in">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-              <span>{workerFeedback}</span>
-            </div>
+          {onNavigateToWorkers && (
+            <button
+              type="button"
+              onClick={onNavigateToWorkers}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-700 hover:bg-cyan-800 text-white rounded-lg text-xs font-bold uppercase tracking-wider transition active:scale-95 cursor-pointer shadow-xs whitespace-nowrap"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Open Workers Tab &rarr;</span>
+            </button>
           )}
-        </div>
-
-        {/* Add New Employee Form */}
-        <form onSubmit={handleAddWorker} className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 mb-4 flex flex-col sm:flex-row gap-3 items-end">
-          <div className="flex-1">
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              New Employee Full Name
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
-                <Users className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <input
-                type="text"
-                required
-                placeholder="e.g. PRAVEEN KUMAR"
-                value={newWorkerName}
-                onChange={(e) => setNewWorkerName(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-bold text-slate-900 uppercase outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-          </div>
-
-          <div className="w-44">
-            <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
-              Employee ID
-            </label>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
-                <IdCard className="w-3.5 h-3.5 text-slate-400" />
-              </div>
-              <input
-                type="text"
-                required
-                placeholder="e.g. EMP-115"
-                value={newWorkerId}
-                onChange={(e) => setNewWorkerId(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-bold text-slate-900 uppercase font-mono outline-none focus:ring-2 focus:ring-cyan-500"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-bold uppercase tracking-wider transition active:scale-95 cursor-pointer shadow-2xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Employee</span>
-          </button>
-        </form>
-
-        {/* Registered Employees Chips List */}
-        <div>
-          <span className="text-xs font-bold text-slate-600 uppercase mb-2 block">
-            Registered Factory Operators ({workers.length})
-          </span>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 max-h-48 overflow-y-auto p-1">
-            {workers.map((w) => (
-              <div
-                key={w.id}
-                className="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs"
-              >
-                <div className="truncate">
-                  <span className="font-bold text-slate-800 block truncate uppercase">{w.name}</span>
-                  <span className="text-[10px] font-mono text-cyan-800 font-bold">{w.id}</span>
-                </div>
-                {workers.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteWorker(w.id)}
-                    title={`Delete employee ${w.name}`}
-                    className="p-1 hover:bg-rose-100 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer ml-1"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </div>
