@@ -12,6 +12,77 @@ interface GroupedRow {
   hours: Record<number, { workerName: string; production: number; target: number }>;
 }
 
+export function getCriticalOpPerformanceStyle(production: number, target: number) {
+  if (target <= 0) {
+    if (production > 0) {
+      return {
+        boxClass: 'bg-emerald-100/90 border-emerald-400 text-emerald-950',
+        prodColor: 'text-emerald-700 font-black',
+        pct: 100,
+      };
+    }
+    return {
+      boxClass: 'bg-slate-100 border-slate-300 text-slate-800',
+      prodColor: 'text-slate-700 font-black',
+      pct: 0,
+    };
+  }
+
+  const pct = Math.round((production / target) * 100);
+
+  // 1. Over target -> Green
+  if (production > target) {
+    return {
+      boxClass: 'bg-emerald-100/90 border-emerald-400 text-emerald-950',
+      prodColor: 'text-emerald-700 font-black',
+      pct,
+    };
+  }
+
+  // 2. Hit target exactly -> Normal (Clean neutral)
+  if (production === target) {
+    return {
+      boxClass: 'bg-slate-100 border-slate-300 text-slate-900',
+      prodColor: 'text-slate-800 font-black',
+      pct: 100,
+    };
+  }
+
+  // 3. 80% to <100% -> Light Yellow
+  if (pct >= 80) {
+    return {
+      boxClass: 'bg-amber-100/90 border-amber-300 text-amber-950',
+      prodColor: 'text-amber-800 font-black',
+      pct,
+    };
+  }
+
+  // 4. Drops below 80% (60% to <80%) -> Light Red
+  if (pct >= 60) {
+    return {
+      boxClass: 'bg-rose-100/80 border-rose-300 text-rose-900',
+      prodColor: 'text-rose-700 font-black',
+      pct,
+    };
+  }
+
+  // 5. Below 60% (40% to <60%) -> Increase little red
+  if (pct >= 40) {
+    return {
+      boxClass: 'bg-rose-200 border-rose-400 text-rose-950',
+      prodColor: 'text-rose-900 font-black',
+      pct,
+    };
+  }
+
+  // 6. Below 40% -> Increase more red color (Deep Red)
+  return {
+    boxClass: 'bg-red-500 border-red-600 text-white',
+    prodColor: 'text-white font-black',
+    pct,
+  };
+}
+
 export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = ({ operations }) => {
   const effectiveOps = operations || [];
 
@@ -21,7 +92,7 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
         <div className="bg-[#184e68] text-white px-2.5 py-1 flex items-center justify-between text-xs font-black tracking-wider uppercase">
           <span>Critical Operations Performance</span>
           <span className="text-[10px] text-cyan-200 font-semibold lowercase tracking-normal">
-            (green: ahead &bull; yellow: on target &bull; red: below target)
+            (&gt;100% green &bull; 100% normal &bull; 80-99% yellow &bull; &lt;80% red shades)
           </span>
         </div>
         <div className="p-5 text-center text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5">
@@ -55,12 +126,17 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
 
   return (
     <div className="w-full bg-white shadow-xs border border-slate-300 rounded-sm overflow-hidden">
-      {/* Section Ribbon Bar */}
-      <div className="bg-[#184e68] text-white px-2.5 py-1 flex items-center justify-between text-xs font-black tracking-wider uppercase">
+      {/* Section Ribbon Bar with Detailed Color Tiers */}
+      <div className="bg-[#184e68] text-white px-2.5 py-1 flex flex-wrap items-center justify-between gap-1.5 text-xs font-black tracking-wider uppercase">
         <span>Critical Operations Performance</span>
-        <span className="text-[10px] text-cyan-200 font-semibold lowercase tracking-normal">
-          (green: ahead &bull; yellow: on target &bull; red: below target)
-        </span>
+        <div className="flex items-center gap-2 text-[10px] font-semibold lowercase tracking-normal flex-wrap">
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>&gt;100% green</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block"></span>100% normal</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-300 inline-block"></span>80-99% yellow</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-300 inline-block"></span>60-79% lt. red</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>40-59% med. red</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>&lt;40% dark red</span>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -125,31 +201,22 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
                         );
                       }
 
-                      const isAhead = cell.production > cell.target;
-                      const isEqual = cell.production === cell.target;
-
-                      let boxClass = 'bg-rose-100/90 border-rose-300 text-rose-950';
-                      let prodColor = 'text-rose-700 font-black';
-
-                      if (isAhead) {
-                        boxClass = 'bg-emerald-100/90 border-emerald-300 text-emerald-950';
-                        prodColor = 'text-emerald-700 font-black';
-                      } else if (isEqual) {
-                        boxClass = 'bg-amber-100/90 border-amber-300 text-amber-950';
-                        prodColor = 'text-amber-800 font-black';
-                      }
+                      const style = getCriticalOpPerformanceStyle(cell.production, cell.target);
 
                       return (
                         <td
                           key={hourNum}
                           className="p-0.5 border-r border-slate-200 text-center leading-tight"
                         >
-                          <div className={`flex flex-col items-center justify-center p-0.5 rounded border shadow-2xs transition-colors ${boxClass}`}>
+                          <div
+                            className={`flex flex-col items-center justify-center p-0.5 rounded border shadow-2xs transition-colors ${style.boxClass}`}
+                            title={`${cell.workerName}: ${cell.production}/${cell.target} (${style.pct}%)`}
+                          >
                             <span className="text-[9px] font-black uppercase tracking-tight truncate max-w-full">
                               {cell.workerName}
                             </span>
                             <div className="mt-0.2 text-[10px] font-black industrial-digits flex items-center gap-0.5">
-                              <span className={prodColor}>
+                              <span className={style.prodColor}>
                                 {cell.production}
                               </span>
                               <span className="opacity-40 font-normal">/</span>

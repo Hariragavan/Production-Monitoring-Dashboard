@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { CriticalOperation } from '../../types';
 import { Plus, Trash2, Users, Copy, CheckCircle2, Clock } from 'lucide-react';
 import { getAvailableWorkers, syncWorkersFromSupabase, type WorkerItem } from '../../lib/dataService';
+import { getCriticalOpPerformanceStyle } from '../dashboard/CriticalOperationsTable';
 
 interface CriticalOperationsEditorProps {
   operations: CriticalOperation[];
@@ -389,7 +390,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                 const target = Number(op.target) || 40;
                 const prod = Number(op.production) || 0;
                 const efficiency = target > 0 ? Math.round((prod / target) * 100) : 0;
-                const isMet = prod >= target;
+                const style = getCriticalOpPerformanceStyle(prod, target);
                 const dev = prod - target;
 
                 return (
@@ -475,9 +476,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         className={`w-20 px-2.5 py-1.5 text-center rounded-md font-black text-sm industrial-digits outline-none transition-all ${
                           prod === 0
                             ? 'bg-white border border-slate-300 text-slate-400'
-                            : isMet
-                            ? 'bg-emerald-100 border border-emerald-500 text-emerald-950'
-                            : 'bg-rose-100 border border-rose-400 text-rose-950'
+                            : `${style.boxClass} font-black`
                         } focus:ring-2 focus:ring-cyan-500`}
                       />
                     </td>
@@ -486,20 +485,16 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                     <td className="px-3 py-2.5 border-r border-slate-200 text-center">
                       <div className="flex flex-col items-center">
                         <span
-                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-black industrial-digits ${
-                            isMet
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                              : 'bg-rose-100 text-rose-800 border border-rose-300'
-                          }`}
+                          className={`inline-block px-2 py-0.5 rounded text-[11px] font-black industrial-digits ${style.boxClass}`}
                         >
                           {efficiency}%
                         </span>
                         <span
                           className={`text-[9px] font-bold mt-0.5 ${
-                            dev >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                            dev > 0 ? 'text-emerald-600' : dev === 0 ? 'text-slate-600' : 'text-rose-600'
                           }`}
                         >
-                          {dev >= 0 ? `▲+${dev}` : `▼${dev}`}
+                          {dev > 0 ? `▲+${dev}` : dev === 0 ? `✓ 0` : `▼${dev}`}
                         </span>
                       </div>
                     </td>
