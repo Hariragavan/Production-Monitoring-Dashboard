@@ -13,38 +13,31 @@ interface GroupedRow {
 }
 
 export function getCriticalOpPerformanceStyle(production: number, target: number) {
-  if (target <= 0) {
-    if (production > 0) {
-      return {
-        boxClass: 'bg-emerald-100/90 border-emerald-400 text-emerald-950',
-        prodColor: 'text-emerald-700 font-black',
-        pct: 100,
-      };
-    }
+  // 1. Operators output is 0 -> Keep the color white
+  if (production <= 0) {
     return {
-      boxClass: 'bg-slate-100 border-slate-300 text-slate-800',
-      prodColor: 'text-slate-700 font-black',
+      boxClass: 'bg-white border-slate-300 text-slate-700',
+      prodColor: 'text-slate-500 font-black',
       pct: 0,
+    };
+  }
+
+  if (target <= 0) {
+    return {
+      boxClass: 'bg-emerald-100/90 border-emerald-400 text-emerald-950',
+      prodColor: 'text-emerald-700 font-black',
+      pct: 100,
     };
   }
 
   const pct = Math.round((production / target) * 100);
 
-  // 1. Over target -> Green
-  if (production > target) {
+  // 2. Hit target or over target -> Green
+  if (production >= target) {
     return {
       boxClass: 'bg-emerald-100/90 border-emerald-400 text-emerald-950',
       prodColor: 'text-emerald-700 font-black',
       pct,
-    };
-  }
-
-  // 2. Hit target exactly -> Normal (Clean neutral)
-  if (production === target) {
-    return {
-      boxClass: 'bg-slate-100 border-slate-300 text-slate-900',
-      prodColor: 'text-slate-800 font-black',
-      pct: 100,
     };
   }
 
@@ -75,7 +68,7 @@ export function getCriticalOpPerformanceStyle(production: number, target: number
     };
   }
 
-  // 6. Below 40% -> Increase more red color (Deep Red)
+  // 6. Below 40% (and >0) -> Increase more red color (Deep Red)
   return {
     boxClass: 'bg-red-500 border-red-600 text-white',
     prodColor: 'text-white font-black',
@@ -92,7 +85,7 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
         <div className="bg-[#184e68] text-white px-2.5 py-1 flex items-center justify-between text-xs font-black tracking-wider uppercase">
           <span>Critical Operations Performance</span>
           <span className="text-[10px] text-cyan-200 font-semibold lowercase tracking-normal">
-            (&gt;100% green &bull; 100% normal &bull; 80-99% yellow &bull; &lt;80% red shades)
+            (&ge;100% green &bull; 80-99% yellow &bull; &lt;80% red shades &bull; 0 white)
           </span>
         </div>
         <div className="p-5 text-center text-slate-400 font-bold text-xs flex flex-col items-center justify-center gap-1.5">
@@ -130,12 +123,12 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
       <div className="bg-[#184e68] text-white px-2.5 py-1 flex flex-wrap items-center justify-between gap-1.5 text-xs font-black tracking-wider uppercase">
         <span>Critical Operations Performance</span>
         <div className="flex items-center gap-2 text-[10px] font-semibold lowercase tracking-normal flex-wrap">
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>&gt;100% green</span>
-          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-slate-300 inline-block"></span>100% normal</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>&ge;100% green</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-300 inline-block"></span>80-99% yellow</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-300 inline-block"></span>60-79% lt. red</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>40-59% med. red</span>
           <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-600 inline-block"></span>&lt;40% dark red</span>
+          <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-white border border-slate-400 inline-block"></span>0 white</span>
         </div>
       </div>
 

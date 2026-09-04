@@ -77,6 +77,26 @@ export const HourlyProductionChart: React.FC<HourlyProductionChartProps> = ({ ho
   const totalTargetShift = runningTarget;
   const shiftEfficiency = totalTargetShift > 0 ? Math.round((totalActualShift / totalTargetShift) * 100) : 0;
 
+  // Determine current target for reference line & top legend
+  const currentHourRow = chartData.find((d) => d.hour === selectedHour);
+  const activeRow = chartData.filter((d) => d.actual > 0 || d.target > 0).pop();
+  const firstRowWithTarget = chartData.find((d) => d.target > 0);
+  const currentTarget =
+    currentHourRow && currentHourRow.target > 0
+      ? currentHourRow.target
+      : activeRow && activeRow.target > 0
+        ? activeRow.target
+        : firstRowWithTarget
+          ? firstRowWithTarget.target
+          : 0;
+
+  const displayTarget =
+    currentTarget > 0
+      ? currentTarget
+      : totalTargetShift > 0
+        ? Math.round(totalTargetShift / 10)
+        : 40;
+
   // Custom SVG Label for Target Bars
   const renderTargetLabel = (props: any) => {
     const { x, y, width, value } = props;
@@ -152,7 +172,7 @@ export const HourlyProductionChart: React.FC<HourlyProductionChartProps> = ({ ho
 
         <div className="flex items-center gap-3 text-[10px] lg:text-[11px] font-bold">
           <span className="inline-flex items-center gap-1 text-sky-700">
-            <span className="w-2 h-2 bg-sky-300 rounded-xs inline-block"></span> Target (150)
+            <span className="w-2 h-2 bg-sky-300 rounded-xs inline-block"></span> Target ({displayTarget})
           </span>
           <span className="inline-flex items-center gap-1 text-emerald-700">
             <span className="w-2 h-2 bg-emerald-500 rounded-xs inline-block"></span> Met Target
@@ -176,13 +196,13 @@ export const HourlyProductionChart: React.FC<HourlyProductionChartProps> = ({ ho
               axisLine={{ stroke: '#cbd5e1' }}
               tickLine={false}
             />
-            {/* Left YAxis: Hourly Production Output (0 - 220) */}
+            {/* Left YAxis: Hourly Production Output dynamically scaled */}
             <YAxis
               yAxisId="left"
               tick={{ fill: '#64748b', fontSize: 9.5, fontWeight: 700 }}
               axisLine={{ stroke: '#cbd5e1' }}
               tickLine={false}
-              domain={[0, 220]}
+              domain={[0, (dataMax: number) => Math.max(Math.ceil((dataMax || displayTarget || 50) * 1.25), displayTarget + 10, 50)]}
             />
             {/* Right YAxis: Cumulative Total Production (0 - 1500+) */}
             <YAxis
@@ -226,8 +246,17 @@ export const HourlyProductionChart: React.FC<HourlyProductionChartProps> = ({ ho
               }}
             />
 
-            {/* Target Reference Line at 150 */}
-            <ReferenceLine yAxisId="left" y={150} stroke="#0284c7" strokeDasharray="3 3" opacity={0.4} />
+            {/* Target Reference Line adjusted dynamically to current target */}
+            {displayTarget > 0 && (
+              <ReferenceLine
+                yAxisId="left"
+                y={displayTarget}
+                stroke="#0284c7"
+                strokeDasharray="3 3"
+                strokeWidth={1.5}
+                opacity={0.6}
+              />
+            )}
 
             {/* Target Bar */}
             <Bar yAxisId="left" dataKey="target" name="Target" fill="#bae6fd" radius={[2, 2, 0, 0]} maxBarSize={26}>
