@@ -13,10 +13,15 @@ interface DowntimeDetailsEditorProps {
 const REASONS: DowntimeCategory[] = [
   'Machine Breakdown',
   'Line Unbalancing',
+  'Line Balancing',
   'Operator Movement',
   'Re work',
   'Idle',
   'Style Changeover',
+  'Break',
+  'Meeting',
+  'Bobbin',
+  'No Line Feeding',
 ];
 
 export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({

@@ -10,10 +10,15 @@ interface DowntimeSummaryEditorProps {
 const CATEGORIES: DowntimeCategory[] = [
   'Machine Breakdown',
   'Line Unbalancing',
+  'Line Balancing',
   'Operator Movement',
   'Re work',
   'Idle',
   'Style Changeover',
+  'Break',
+  'Meeting',
+  'Bobbin',
+  'No Line Feeding',
 ];
 
 export const DowntimeSummaryEditor: React.FC<DowntimeSummaryEditorProps> = ({

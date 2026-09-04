@@ -63,10 +63,15 @@ export interface DowntimeSummaryItem {
 export type DowntimeCategory = 
   | 'Machine Breakdown'
   | 'Line Unbalancing'
+  | 'Line Balancing'
   | 'Operator Movement'
   | 'Re work'
   | 'Idle'
-  | 'Style Changeover';
+  | 'Style Changeover'
+  | 'Break'
+  | 'Meeting'
+  | 'Bobbin'
+  | 'No Line Feeding';
 
 export interface DowntimeDetailItem {
   id?: string;

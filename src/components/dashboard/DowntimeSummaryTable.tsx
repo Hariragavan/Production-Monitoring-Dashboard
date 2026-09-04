@@ -10,10 +10,15 @@ interface DowntimeSummaryTableProps {
 const ORDERED_CATEGORIES: DowntimeCategory[] = [
   'Machine Breakdown',
   'Line Unbalancing',
+  'Line Balancing',
   'Operator Movement',
   'Re work',
   'Idle',
   'Style Changeover',
+  'Break',
+  'Meeting',
+  'Bobbin',
+  'No Line Feeding',
 ];
 
 export const DowntimeSummaryTable: React.FC<DowntimeSummaryTableProps> = ({ downtimeSummary }) => {

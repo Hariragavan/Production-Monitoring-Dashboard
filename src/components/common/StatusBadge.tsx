@@ -17,6 +17,12 @@ export const DOWNTIME_COLOR_MAP: Record<
     lightBg: 'bg-pink-50/70',
     border: 'border-pink-300',
   },
+  'Line Balancing': {
+    dotBg: 'bg-pink-400 border-pink-500',
+    text: 'text-pink-900',
+    lightBg: 'bg-pink-50/70',
+    border: 'border-pink-300',
+  },
   'Operator Movement': {
     dotBg: 'bg-teal-700 border-teal-800',
     text: 'text-teal-900',
@@ -37,6 +43,30 @@ export const DOWNTIME_COLOR_MAP: Record<
   },
   'Style Changeover': {
     dotBg: 'bg-amber-600 border-amber-700',
+    text: 'text-orange-950',
+    lightBg: 'bg-orange-50/70',
+    border: 'border-orange-300',
+  },
+  'Break': {
+    dotBg: 'bg-blue-400 border-blue-500',
+    text: 'text-blue-900',
+    lightBg: 'bg-blue-50/70',
+    border: 'border-blue-300',
+  },
+  'Meeting': {
+    dotBg: 'bg-purple-500 border-purple-600',
+    text: 'text-purple-950',
+    lightBg: 'bg-purple-50/70',
+    border: 'border-purple-300',
+  },
+  'Bobbin': {
+    dotBg: 'bg-indigo-400 border-indigo-500',
+    text: 'text-indigo-900',
+    lightBg: 'bg-indigo-50/70',
+    border: 'border-indigo-300',
+  },
+  'No Line Feeding': {
+    dotBg: 'bg-orange-500 border-orange-600',
     text: 'text-orange-950',
     lightBg: 'bg-orange-50/70',
     border: 'border-orange-300',

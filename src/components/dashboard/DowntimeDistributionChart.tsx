@@ -11,12 +11,17 @@ interface DowntimeDistributionChartProps {
 }
 
 const CATEGORY_COLORS: Record<DowntimeCategory, string> = {
-  'Machine Breakdown': '#facc15', // Yellow
+  'Machine Breakdown': '#facc15',   // Yellow
   'Line Unbalancing': '#f472b6',    // Pink
+  'Line Balancing': '#ec4899',      // Pink
   'Operator Movement': '#0f766e',   // Deep Teal
   'Re work': '#4ade80',             // Green
   'Idle': '#ef4444',                // Red
   'Style Changeover': '#ea580c',    // Orange
+  'Break': '#3b82f6',               // Blue
+  'Meeting': '#a855f7',             // Purple
+  'Bobbin': '#6366f1',              // Indigo
+  'No Line Feeding': '#f97316',     // Amber/Orange
 };
 
 export const DowntimeDistributionChart: React.FC<DowntimeDistributionChartProps> = ({
@@ -33,10 +38,15 @@ export const DowntimeDistributionChart: React.FC<DowntimeDistributionChartProps>
   const hourCategoryTotals: Record<string, number> = {
     'Machine Breakdown': 0,
     'Line Unbalancing': 0,
+    'Line Balancing': 0,
     'Operator Movement': 0,
     'Re work': 0,
     'Idle': 0,
     'Style Changeover': 0,
+    'Break': 0,
+    'Meeting': 0,
+    'Bobbin': 0,
+    'No Line Feeding': 0,
   };
 
   downtimeSummary.forEach((item) => {
