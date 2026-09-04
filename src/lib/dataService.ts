@@ -249,51 +249,63 @@ export async function syncWorkersFromSupabase(): Promise<WorkerItem[]> {
   return getAvailableWorkers();
 }
 
-export function addAvailableWorker(worker: WorkerItem): WorkerItem[] {
+export async function addAvailableWorker(worker: WorkerItem): Promise<{ success: boolean; workers: WorkerItem[]; error?: string }> {
   const current = getAvailableWorkers();
   const trimmedName = worker.name.trim().toUpperCase();
   const trimmedId = worker.id.trim().toUpperCase();
   const trimmedRole = worker.role?.trim() || '';
   const trimmedDept = worker.department?.trim() || '';
-  if (!trimmedName || !trimmedId) return current;
-  if (current.some(w => w.id === trimmedId)) return current;
+  if (!trimmedName || !trimmedId) return { success: false, workers: current, error: 'Name and ID are required' };
+  if (current.some(w => w.id === trimmedId)) return { success: false, workers: current, error: `Worker with ID "${trimmedId}" is already registered` };
+
+  let supabaseError: string | undefined;
+
+  // 1. Insert directly to Supabase
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { error } = await supabase.from('workers').insert({
+        worker_id: trimmedId,
+        name: trimmedName,
+        role: trimmedRole,
+        department: trimmedDept,
+      });
+      if (error && error.code !== '23505') {
+        supabaseError = error.message;
+        console.warn('Could not insert worker into Supabase:', error);
+      }
+    } catch (err: any) {
+      supabaseError = err.message;
+    }
+  }
+
+  // 2. Keep local cache updated
   const updated = [...current, { name: trimmedName, id: trimmedId, role: trimmedRole, department: trimmedDept }];
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
 
-  // Auto-sync to Supabase workers table
-  if (isSupabaseConfigured && supabase) {
-    supabase.from('workers').insert({
-      worker_id: trimmedId,
-      name: trimmedName,
-      role: trimmedRole,
-      department: trimmedDept,
-    }).then(({ error }) => {
-      if (error && error.code !== '23505') {
-        console.warn('Could not insert worker into Supabase:', error);
-      }
-    });
-  }
-
-  return updated;
+  return { success: !supabaseError, workers: updated, error: supabaseError };
 }
 
-export function deleteAvailableWorker(workerId: string): WorkerItem[] {
+export async function deleteAvailableWorker(workerId: string): Promise<{ success: boolean; workers: WorkerItem[]; error?: string }> {
   const current = getAvailableWorkers();
   const updated = current.filter(w => w.id !== workerId);
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
 
-  // Auto-sync to Supabase workers table
+  let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
-    supabase.from('workers').delete().eq('worker_id', workerId).then(({ error }) => {
+    try {
+      const { error } = await supabase.from('workers').delete().eq('worker_id', workerId);
       if (error) {
+        supabaseError = error.message;
         console.warn('Could not delete worker from Supabase:', error);
       }
-    });
+    } catch (err: any) {
+      supabaseError = err.message;
+    }
   }
 
-  return updated;
+  return { success: !supabaseError, workers: updated, error: supabaseError };
 }
 
 // Supervisors Directory

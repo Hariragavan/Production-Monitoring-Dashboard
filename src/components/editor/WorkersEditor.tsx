@@ -43,9 +43,12 @@ export const WorkersEditor: React.FC = () => {
     return () => window.removeEventListener('production-workers-updated', handleWorkersUpdated);
   }, []);
 
-  const handleAddWorker = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleAddWorker = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setFeedback(null);
 
     const name = newWorkerName.trim().toUpperCase();
     const id = newWorkerId.trim().toUpperCase();
@@ -66,26 +69,33 @@ export const WorkersEditor: React.FC = () => {
       return;
     }
 
-    const updated = addAvailableWorker({
+    setIsSubmitting(true);
+    const result = await addAvailableWorker({
       name,
       id,
       role: role || undefined,
       department: department || undefined,
     });
+    setIsSubmitting(false);
 
-    setWorkers(updated);
+    setWorkers(result.workers);
+    if (!result.success && result.error) {
+      setError(`Notice: Saved locally, but database returned: ${result.error}`);
+    } else {
+      setFeedback(`✓ Operator ${name} (${id}) saved directly to Supabase database!`);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+
     setNewWorkerName('');
     setNewWorkerId('');
     setNewWorkerRole('');
     setNewWorkerDept('');
-    setFeedback(`✓ Operator ${name} (${id}) added to staff directory`);
-    setTimeout(() => setFeedback(null), 3500);
   };
 
-  const handleDelete = (id: string, name: string) => {
-    const updated = deleteAvailableWorker(id);
-    setWorkers(updated);
-    setFeedback(`Removed operator ${name} (${id})`);
+  const handleDelete = async (id: string, name: string) => {
+    const result = await deleteAvailableWorker(id);
+    setWorkers(result.workers);
+    setFeedback(`Removed operator ${name} (${id}) from database`);
     setTimeout(() => setFeedback(null), 3000);
   };
 
@@ -222,10 +232,11 @@ export const WorkersEditor: React.FC = () => {
           <div className="flex justify-end pt-1">
             <button
               type="submit"
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-black uppercase tracking-wider transition active:scale-95 cursor-pointer shadow-sm"
+              disabled={isSubmitting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white rounded-lg text-xs font-black uppercase tracking-wider transition active:scale-95 cursor-pointer shadow-sm"
             >
               <Plus className="w-4 h-4" />
-              <span>+ Add Operator to Directory</span>
+              <span>{isSubmitting ? 'Saving to Database...' : '+ Add Operator to Directory'}</span>
             </button>
           </div>
         </form>
