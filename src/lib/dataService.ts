@@ -62,6 +62,25 @@ export function getAvailableLanes(): string[] {
   return DEFAULT_LANES;
 }
 
+export async function syncLanesFromSupabase(): Promise<string[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data } = await supabase.from('production_days').select('lane_name');
+      if (data && data.length > 0) {
+        const lanesFromDb = data.map(d => d.lane_name).filter(Boolean);
+        const current = getAvailableLanes();
+        const merged = Array.from(new Set([...current, ...lanesFromDb]));
+        localStorage.setItem(LANES_STORAGE_KEY, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('production-lanes-updated', { detail: { lanes: merged } }));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Could not sync lanes from Supabase:', err);
+    }
+  }
+  return getAvailableLanes();
+}
+
 export function addAvailableLane(newLane: string): string[] {
   const current = getAvailableLanes();
   const trimmed = newLane.trim();
@@ -96,6 +115,25 @@ export function getAvailableUnits(): string[] {
     // ignore
   }
   return DEFAULT_UNITS;
+}
+
+export async function syncUnitsFromSupabase(): Promise<string[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data } = await supabase.from('units').select('unit_name');
+      if (data && data.length > 0) {
+        const unitsFromDb = data.map(d => d.unit_name).filter(Boolean);
+        const current = getAvailableUnits();
+        const merged = Array.from(new Set([...current, ...unitsFromDb]));
+        localStorage.setItem(UNITS_STORAGE_KEY, JSON.stringify(merged));
+        window.dispatchEvent(new CustomEvent('production-units-updated', { detail: { units: merged } }));
+        return merged;
+      }
+    } catch (err) {
+      console.warn('Could not sync units from Supabase:', err);
+    }
+  }
+  return getAvailableUnits();
 }
 
 export function addAvailableUnit(newUnit: string): string[] {
@@ -189,17 +227,54 @@ export function getAvailableWorkers(): WorkerItem[] {
   return DEFAULT_WORKERS;
 }
 
+export async function syncWorkersFromSupabase(): Promise<WorkerItem[]> {
+  if (isSupabaseConfigured && supabase) {
+    try {
+      const { data, error } = await supabase.from('workers').select('*').order('name');
+      if (!error && data) {
+        const mapped: WorkerItem[] = data.map((d: any) => ({
+          id: d.worker_id,
+          name: d.name,
+          role: d.role,
+          department: d.department,
+        }));
+        localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(mapped));
+        window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: mapped } }));
+        return mapped;
+      }
+    } catch (err) {
+      console.warn('Could not sync workers from Supabase:', err);
+    }
+  }
+  return getAvailableWorkers();
+}
+
 export function addAvailableWorker(worker: WorkerItem): WorkerItem[] {
   const current = getAvailableWorkers();
   const trimmedName = worker.name.trim().toUpperCase();
   const trimmedId = worker.id.trim().toUpperCase();
-  const trimmedRole = worker.role?.trim();
-  const trimmedDept = worker.department?.trim();
+  const trimmedRole = worker.role?.trim() || '';
+  const trimmedDept = worker.department?.trim() || '';
   if (!trimmedName || !trimmedId) return current;
   if (current.some(w => w.id === trimmedId)) return current;
   const updated = [...current, { name: trimmedName, id: trimmedId, role: trimmedRole, department: trimmedDept }];
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
+
+  // Auto-sync to Supabase workers table
+  if (isSupabaseConfigured && supabase) {
+    supabase.from('workers').insert({
+      worker_id: trimmedId,
+      name: trimmedName,
+      role: trimmedRole,
+      department: trimmedDept,
+    }).then(({ error }) => {
+      if (error && error.code !== '23505') {
+        console.warn('Could not insert worker into Supabase:', error);
+      }
+    });
+  }
+
   return updated;
 }
 
@@ -208,6 +283,16 @@ export function deleteAvailableWorker(workerId: string): WorkerItem[] {
   const updated = current.filter(w => w.id !== workerId);
   localStorage.setItem(WORKERS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new CustomEvent('production-workers-updated', { detail: { workers: updated } }));
+
+  // Auto-sync to Supabase workers table
+  if (isSupabaseConfigured && supabase) {
+    supabase.from('workers').delete().eq('worker_id', workerId).then(({ error }) => {
+      if (error) {
+        console.warn('Could not delete worker from Supabase:', error);
+      }
+    });
+  }
+
   return updated;
 }
 

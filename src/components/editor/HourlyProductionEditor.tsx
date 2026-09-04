@@ -5,11 +5,15 @@ import { DeviationIndicator } from '../common/DeviationIndicator';
 interface HourlyProductionEditorProps {
   hourly: HourlyProduction[];
   onChange: (updatedHourly: HourlyProduction[]) => void;
+  onSave?: () => void;
+  isSaving?: boolean;
 }
 
 export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
   hourly,
   onChange,
+  onSave,
+  isSaving = false,
 }) => {
   // Ensure array has 10 hours
   const hoursData = Array.from({ length: 10 }, (_, index) => {
@@ -162,6 +166,23 @@ export const HourlyProductionEditor: React.FC<HourlyProductionEditorProps> = ({
           </tbody>
         </table>
       </div>
+
+      {onSave && (
+        <div className="mt-5 pt-4 border-t border-slate-200 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={isSaving}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-400 text-white font-bold rounded-lg text-xs uppercase tracking-wider transition shadow-sm active:scale-95 cursor-pointer"
+          >
+            {isSaving ? (
+              <span>Saving to Database...</span>
+            ) : (
+              <span>Save Hourly Schedule Changes</span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };

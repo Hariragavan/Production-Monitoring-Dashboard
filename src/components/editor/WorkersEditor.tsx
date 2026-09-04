@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import {
   getAvailableWorkers,
+  syncWorkersFromSupabase,
   addAvailableWorker,
   deleteAvailableWorker,
   type WorkerItem,
@@ -27,8 +28,12 @@ export const WorkersEditor: React.FC = () => {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync with real-time worker updates
+  // Sync with real-time worker updates and fetch from Supabase on mount
   useEffect(() => {
+    syncWorkersFromSupabase().then((synced) => {
+      if (synced) setWorkers(synced);
+    });
+
     const handleWorkersUpdated = (e: any) => {
       if (e.detail?.workers) {
         setWorkers(e.detail.workers);

@@ -5,7 +5,14 @@ import { HourlyProductionChart } from '../components/dashboard/HourlyProductionC
 import { CriticalOperationsTable } from '../components/dashboard/CriticalOperationsTable';
 import { DowntimeSummaryTable } from '../components/dashboard/DowntimeSummaryTable';
 import { DowntimeDetailsTable } from '../components/dashboard/DowntimeDetailsTable';
-import { fetchDashboardData, subscribeToDashboardChanges, getAvailableLanes, getAvailableUnits } from '../lib/dataService';
+import {
+  fetchDashboardData,
+  subscribeToDashboardChanges,
+  getAvailableLanes,
+  getAvailableUnits,
+  syncLanesFromSupabase,
+  syncUnitsFromSupabase,
+} from '../lib/dataService';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { DashboardData } from '../types';
 import { INITIAL_DEMO_DATA } from '../lib/seedData';
@@ -22,6 +29,16 @@ export const DashboardPage: React.FC = () => {
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [loading, setLoading] = useState<boolean>(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+
+  // Sync available lanes and units from database across all devices
+  useEffect(() => {
+    syncLanesFromSupabase().then((lanes) => {
+      if (lanes && lanes.length > 0) setAvailableLanes(lanes);
+    });
+    syncUnitsFromSupabase().then((units) => {
+      if (units && units.length > 0) setAvailableUnits(units);
+    });
+  }, []);
 
   const loadData = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);

@@ -7,9 +7,12 @@ import {
   getAvailableLanes,
   addAvailableLane,
   deleteAvailableLane,
+  syncLanesFromSupabase,
   getAvailableUnits,
   addAvailableUnit,
   deleteAvailableUnit,
+  syncUnitsFromSupabase,
+  syncWorkersFromSupabase,
   getAvailableSupervisors,
   getLaneSupervisor,
   setLaneSupervisor,
@@ -76,6 +79,17 @@ export const EditPage: React.FC = () => {
       navigate('/login');
     }
   }, [isAuthenticated, authLoading, navigate]);
+
+  // Sync lanes, units, and workers from Supabase on mount across all devices
+  useEffect(() => {
+    syncLanesFromSupabase().then((lanes) => {
+      if (lanes && lanes.length > 0) setAvailableLanes(lanes);
+    });
+    syncUnitsFromSupabase().then((units) => {
+      if (units && units.length > 0) setAvailableUnits(units);
+    });
+    syncWorkersFromSupabase();
+  }, []);
 
   // Real-time listener for units update
   useEffect(() => {
@@ -615,6 +629,8 @@ export const EditPage: React.FC = () => {
                     hourly: updatedHourly,
                   }));
                 }}
+                onSave={handleSave}
+                isSaving={saveStatus === 'saving'}
               />
             )}
 
