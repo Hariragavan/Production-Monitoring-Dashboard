@@ -144,5 +144,26 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE downtime_details;
   EXCEPTION WHEN duplicate_object THEN NULL;
   END;
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE workers;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
 END $$;
+
+-- 10. Workers Master Table (Multi-Device Shared Directory)
+CREATE TABLE IF NOT EXISTS workers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    worker_id VARCHAR(50) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    role VARCHAR(100) DEFAULT '',
+    department VARCHAR(100) DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+GRANT ALL ON TABLE workers TO anon, authenticated, service_role;
+ALTER TABLE workers DISABLE ROW LEVEL SECURITY;
+ALTER TABLE workers REPLICA IDENTITY FULL;
+DROP POLICY IF EXISTS "Allow all workers" ON workers;
+CREATE POLICY "Allow all workers" ON workers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 
