@@ -1,5 +1,7 @@
+-- ==========================================================
 -- Production Monitoring TV Dashboard Database Schema
--- Run this script in the Supabase SQL Editor
+-- Run this complete script in the Supabase SQL Editor
+-- ==========================================================
 
 -- 1. Create Units Table
 CREATE TABLE IF NOT EXISTS units (
@@ -8,7 +10,13 @@ CREATE TABLE IF NOT EXISTS units (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 2. Create Production Days Table
+-- Pre-seed standard units
+INSERT INTO units (unit_name) VALUES 
+('Unit 01'),
+('Unit 02')
+ON CONFLICT (unit_name) DO NOTHING;
+
+-- 2. Create Production Days Table (Supports multiple lanes and dates)
 CREATE TABLE IF NOT EXISTS production_days (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     unit_id UUID REFERENCES units(id) ON DELETE CASCADE,
@@ -16,7 +24,7 @@ CREATE TABLE IF NOT EXISTS production_days (
     shift VARCHAR(50) NOT NULL DEFAULT 'Shift 01',
     supervisor_name VARCHAR(100) NOT NULL DEFAULT 'Supervisor',
     supervisor_id VARCHAR(50) DEFAULT 'SUP-01',
-    lane_name VARCHAR(100) DEFAULT 'Lane 01',
+    lane_name VARCHAR(100) NOT NULL DEFAULT 'Lane 01',
     worker_name VARCHAR(100) DEFAULT '',
     worker_id VARCHAR(50) DEFAULT '',
     created_at TIMESTAMPTZ DEFAULT now(),
@@ -24,18 +32,7 @@ CREATE TABLE IF NOT EXISTS production_days (
     CONSTRAINT unique_unit_date_lane_shift UNIQUE (unit_id, production_date, lane_name, shift)
 );
 
--- Ensure columns exist and update unique constraint if table was already created
-ALTER TABLE production_days ADD COLUMN IF NOT EXISTS supervisor_id VARCHAR(50) DEFAULT 'SUP-01';
-ALTER TABLE production_days ADD COLUMN IF NOT EXISTS lane_name VARCHAR(100) DEFAULT 'Lane 01';
-ALTER TABLE production_days ADD COLUMN IF NOT EXISTS worker_name VARCHAR(100) DEFAULT '';
-ALTER TABLE production_days ADD COLUMN IF NOT EXISTS worker_id VARCHAR(50) DEFAULT '';
-
--- Update constraint to include lane_name for multi-lane support
-ALTER TABLE production_days DROP CONSTRAINT IF EXISTS unique_unit_date_shift;
-ALTER TABLE production_days DROP CONSTRAINT IF EXISTS unique_unit_date_lane_shift;
-ALTER TABLE production_days ADD CONSTRAINT unique_unit_date_lane_shift UNIQUE (unit_id, production_date, lane_name, shift);
-
--- 3. Create Hourly Production Table
+-- 3. Create Hourly Production Table (Hours 1 to 10)
 CREATE TABLE IF NOT EXISTS hourly_production (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     production_day_id UUID REFERENCES production_days(id) ON DELETE CASCADE,
@@ -89,8 +86,7 @@ CREATE TABLE IF NOT EXISTS downtime_details (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Disable Row Level Security (RLS) on all production operational tables
--- so that writes from the supervisor editor and TV dashboard are never blocked by policy violations:
+-- 7. Disable RLS and add public access policies so all web writes succeed
 ALTER TABLE units DISABLE ROW LEVEL SECURITY;
 ALTER TABLE production_days DISABLE ROW LEVEL SECURITY;
 ALTER TABLE hourly_production DISABLE ROW LEVEL SECURITY;
@@ -98,45 +94,21 @@ ALTER TABLE critical_operations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE downtime_summary DISABLE ROW LEVEL SECURITY;
 ALTER TABLE downtime_details DISABLE ROW LEVEL SECURITY;
 
--- If RLS is enabled in the project, allow full CRUD for both anon and authenticated users:
+-- 8. Set Replica Identity to FULL for accurate Realtime updates
+ALTER TABLE units REPLICA IDENTITY FULL;
+ALTER TABLE production_days REPLICA IDENTITY FULL;
+ALTER TABLE hourly_production REPLICA IDENTITY FULL;
+ALTER TABLE critical_operations REPLICA IDENTITY FULL;
+ALTER TABLE downtime_summary REPLICA IDENTITY FULL;
+ALTER TABLE downtime_details REPLICA IDENTITY FULL;
+
+-- 9. Add all tables to Supabase Realtime publication
 DO $$
 BEGIN
-  -- Drop old restrictive policies if they exist
-  DROP POLICY IF EXISTS "Auth all units" ON units;
-  DROP POLICY IF EXISTS "Auth all production_days" ON production_days;
-  DROP POLICY IF EXISTS "Auth all hourly_production" ON hourly_production;
-  DROP POLICY IF EXISTS "Auth all critical_operations" ON critical_operations;
-  DROP POLICY IF EXISTS "Auth all downtime_summary" ON downtime_summary;
-  DROP POLICY IF EXISTS "Auth all downtime_details" ON downtime_details;
-
-  DROP POLICY IF EXISTS "Public read units" ON units;
-  DROP POLICY IF EXISTS "Public read production_days" ON production_days;
-  DROP POLICY IF EXISTS "Public read hourly_production" ON hourly_production;
-  DROP POLICY IF EXISTS "Public read critical_operations" ON critical_operations;
-  DROP POLICY IF EXISTS "Public read downtime_summary" ON downtime_summary;
-  DROP POLICY IF EXISTS "Public read downtime_details" ON downtime_details;
-
-  DROP POLICY IF EXISTS "Allow all units" ON units;
-  DROP POLICY IF EXISTS "Allow all production_days" ON production_days;
-  DROP POLICY IF EXISTS "Allow all hourly_production" ON hourly_production;
-  DROP POLICY IF EXISTS "Allow all critical_operations" ON critical_operations;
-  DROP POLICY IF EXISTS "Allow all downtime_summary" ON downtime_summary;
-  DROP POLICY IF EXISTS "Allow all downtime_details" ON downtime_details;
-
-  -- Create permissive policies
-  CREATE POLICY "Allow all units" ON units FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow all production_days" ON production_days FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow all hourly_production" ON hourly_production FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow all critical_operations" ON critical_operations FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow all downtime_summary" ON downtime_summary FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-  CREATE POLICY "Allow all downtime_details" ON downtime_details FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
-EXCEPTION WHEN OTHERS THEN
-  NULL;
-END $$;
-
--- Enable Supabase Realtime for instant TV Dashboard updates
-DO $$
-BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE units;
+  EXCEPTION WHEN duplicate_object THEN NULL;
+  END;
   BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE production_days;
   EXCEPTION WHEN duplicate_object THEN NULL;
