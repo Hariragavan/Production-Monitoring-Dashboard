@@ -156,31 +156,105 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     }
   };
 
-  // Add new operation for this hour
+  // Add new operation for this hour (smart slot detection: re-fills missing line slot instead of appending a new row number)
   const handleAddOpForHour = () => {
-    const nextNo =
-      currentHourOps.length > 0
-        ? Math.max(...currentHourOps.map((o) => o.operation_no)) + 1
-        : 1;
+    // 1. Find all operation numbers that exist across the entire shift
+    const allOpNumbers = Array.from(new Set(operations.map((o) => o.operation_no))).sort((a, b) => a - b);
+    const currentHourOpNumbers = new Set(currentHourOps.map((o) => o.operation_no));
 
+    // 2. Identify the lowest slot number missing in this active hour
+    const missingSlotNo = allOpNumbers.find((no) => !currentHourOpNumbers.has(no));
+
+    const nextNo =
+      missingSlotNo !== undefined
+        ? missingSlotNo
+        : currentHourOps.length > 0
+          ? Math.max(...currentHourOps.map((o) => o.operation_no)) + 1
+          : 1;
+
+    // 3. Pre-fill template details if this slot exists in other hours
+    const templateOp = operations.find((o) => o.operation_no === nextNo);
     const defaultWorker = availableWorkers[(nextNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
     const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
-    const defaultOp = opPool[(nextNo - 1) % opPool.length];
+    const defaultOp = templateOp?.operation_name || opPool[(nextNo - 1) % opPool.length];
+    const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 40;
+    const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
+    const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
 
     const newOp: CriticalOperation = {
       id: `co-${nextNo}-${activeHour}-${Date.now()}`,
       operation_no: nextNo,
       operation_name: defaultOp,
-      worker_name: defaultWorker.name,
-      worker_id: defaultWorker.id,
+      worker_name: defaultWorkerName,
+      worker_id: defaultWorkerId,
       hour: activeHour,
-      production: 40,
-      target: 40,
-      completed: true,
-      status: 'completed',
+      production: 0,
+      target: defaultTarget,
+      completed: false,
+      status: 'in_progress',
     };
 
     onChange([...operations, newOp]);
+  };
+
+  // Reconcile and merge any displaced or high-numbered rows back into their matching base line rows
+  const handleAutoAlignRows = () => {
+    const baseRoster: { operation_no: number; operation_name: string; worker_name: string }[] = [];
+    for (let h = 1; h <= 10; h++) {
+      const opsAtHour = operations.filter((o) => o.hour === h).sort((a, b) => a.operation_no - b.operation_no);
+      opsAtHour.forEach((op) => {
+        if (!baseRoster.some((b) => b.operation_no === op.operation_no)) {
+          baseRoster.push({
+            operation_no: op.operation_no,
+            operation_name: op.operation_name,
+            worker_name: op.worker_name,
+          });
+        }
+      });
+    }
+
+    baseRoster.sort((a, b) => a.operation_no - b.operation_no);
+
+    let changedCount = 0;
+    const aligned = operations.map((op) => {
+      // If op.operation_no is already a base slot matching this operation name, keep it
+      const exactBase = baseRoster.find((b) => b.operation_no === op.operation_no);
+      if (exactBase && exactBase.operation_name.trim().toUpperCase() === op.operation_name.trim().toUpperCase()) {
+        return op;
+      }
+
+      // Look for a base slot with matching operation_name (and worker if possible) where this hour is vacant
+      let targetSlot = baseRoster.find((b) => {
+        if (b.operation_name.trim().toUpperCase() !== op.operation_name.trim().toUpperCase()) return false;
+        if (b.worker_name.trim().toUpperCase() !== op.worker_name.trim().toUpperCase()) return false;
+        const isTaken = operations.some((other) => other.id !== op.id && other.hour === op.hour && other.operation_no === b.operation_no);
+        return !isTaken;
+      });
+
+      if (!targetSlot) {
+        targetSlot = baseRoster.find((b) => {
+          if (b.operation_name.trim().toUpperCase() !== op.operation_name.trim().toUpperCase()) return false;
+          const isTaken = operations.some((other) => other.id !== op.id && other.hour === op.hour && other.operation_no === b.operation_no);
+          return !isTaken;
+        });
+      }
+
+      if (targetSlot && targetSlot.operation_no !== op.operation_no) {
+        changedCount++;
+        return { ...op, operation_no: targetSlot.operation_no };
+      }
+
+      return op;
+    });
+
+    if (changedCount > 0) {
+      onChange(aligned);
+      setOpFeedback(`✓ Successfully merged ${changedCount} operation(s) back into their correct row!`);
+      setTimeout(() => setOpFeedback(null), 4000);
+    } else {
+      setOpFeedback(`✓ All operations are already properly aligned with their line rows.`);
+      setTimeout(() => setOpFeedback(null), 3000);
+    }
   };
 
   // Delete operation from this hour
@@ -384,6 +458,17 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
             </button>
           )}
 
+          {/* Auto-Align / Reconcile Operations to Canonical Rows */}
+          <button
+            type="button"
+            onClick={handleAutoAlignRows}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
+            title="Automatically align and merge any newly added or displaced operators back into their proper line rows"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Align to Rows</span>
+          </button>
+
           {/* Create New Master Operation */}
           <button
             type="button"
@@ -470,11 +555,20 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
                 return (
                   <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
-                    {/* Operation Number */}
-                    <td className="px-3 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50">
-                      <span className="w-5 h-5 rounded-full bg-[#134665] text-white text-[10px] font-black inline-flex items-center justify-center">
-                        {op.operation_no}
-                      </span>
+                    {/* Operation Number / Row Slot Selector */}
+                    <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50">
+                      <select
+                        value={op.operation_no}
+                        onChange={(e) => handleUpdateField(op.id, 'operation_no', Number(e.target.value))}
+                        className="w-13 px-1 py-1 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer shadow-2xs"
+                        title="Row / Workstation # on line (change to merge into that row)"
+                      >
+                        {Array.from({ length: 25 }, (_, i) => i + 1).map((num) => (
+                          <option key={num} value={num}>
+                            #{num}
+                          </option>
+                        ))}
+                      </select>
                     </td>
 
                     {/* Operation Name Dropdown & Add Button */}

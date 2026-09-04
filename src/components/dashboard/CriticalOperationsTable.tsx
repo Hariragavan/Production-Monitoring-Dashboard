@@ -96,23 +96,77 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
     );
   }
 
-  // Group operations by operation_no
+  // Group operations by operation_no with smart row matching for re-created or displaced hours
   const rowsMap = new Map<number, GroupedRow>();
 
-  effectiveOps.forEach((op) => {
-    if (!rowsMap.has(op.operation_no)) {
+  // 1. Sort ops so established base rows (lower operation_no, earlier hours) are processed first
+  const sortedOps = [...effectiveOps].sort((a, b) => {
+    if (a.operation_no !== b.operation_no) return a.operation_no - b.operation_no;
+    return a.hour - b.hour;
+  });
+
+  sortedOps.forEach((op) => {
+    const opNameNorm = (op.operation_name || '').trim().toUpperCase();
+    const workerNameNorm = (op.worker_name || '').trim().toUpperCase();
+
+    // Check if rowsMap already has a row with this operation_no and this hour is vacant
+    if (rowsMap.has(op.operation_no)) {
+      const existingRow = rowsMap.get(op.operation_no)!;
+      if (!existingRow.hours[op.hour]) {
+        existingRow.hours[op.hour] = {
+          workerName: op.worker_name,
+          production: op.production,
+          target: op.target,
+        };
+        return;
+      }
+    }
+
+    // If rowsMap does not have op.operation_no, OR if this hour is already taken in that row:
+    // Check if there is an existing earlier row with the same operation name where this hour is vacant
+    let targetRow: GroupedRow | undefined;
+    let workerMatchedRow: GroupedRow | undefined;
+    let firstVacantRow: GroupedRow | undefined;
+
+    for (const r of rowsMap.values()) {
+      const isSameOp = r.operationName.trim().toUpperCase() === opNameNorm;
+      const isVacant = !r.hours[op.hour];
+
+      if (isSameOp && isVacant) {
+        const matchesWorker = Object.values(r.hours).some(
+          (h) => h.workerName && h.workerName.trim().toUpperCase() === workerNameNorm
+        );
+        if (matchesWorker && !workerMatchedRow) {
+          workerMatchedRow = r;
+          break;
+        }
+        if (!firstVacantRow) {
+          firstVacantRow = r;
+        }
+      }
+    }
+
+    targetRow = workerMatchedRow || firstVacantRow;
+
+    if (targetRow) {
+      targetRow.hours[op.hour] = {
+        workerName: op.worker_name,
+        production: op.production,
+        target: op.target,
+      };
+    } else {
       rowsMap.set(op.operation_no, {
         operationNo: op.operation_no,
         operationName: op.operation_name,
-        hours: {},
+        hours: {
+          [op.hour]: {
+            workerName: op.worker_name,
+            production: op.production,
+            target: op.target,
+          },
+        },
       });
     }
-    const row = rowsMap.get(op.operation_no)!;
-    row.hours[op.hour] = {
-      workerName: op.worker_name,
-      production: op.production,
-      target: op.target,
-    };
   });
 
   const sortedRows = Array.from(rowsMap.values()).sort((a, b) => a.operationNo - b.operationNo);
