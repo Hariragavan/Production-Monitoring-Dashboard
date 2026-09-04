@@ -7,10 +7,14 @@ import {
   User,
   Factory,
   Layers,
+  Building2,
 } from 'lucide-react';
 import { FullscreenButton } from '../common/FullscreenButton';
 
 interface DashboardHeaderProps {
+  unitName?: string;
+  availableUnits?: string[];
+  onUnitChange?: (newUnit: string) => void;
   productionDate: string; // YYYY-MM-DD
   supervisorName: string;
   supervisorId?: string;
@@ -30,6 +34,9 @@ const formatLocalDate = (d: Date): string => {
 };
 
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
+  unitName,
+  availableUnits,
+  onUnitChange,
   productionDate,
   supervisorName,
   supervisorId,
@@ -135,8 +142,28 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
         </div>
       </div>
 
-      {/* 3. Right: Lane Dropdown, Dedicated Supervisor, Fullscreen, Edit Button */}
+      {/* 3. Right: Unit Dropdown, Lane Dropdown, Dedicated Supervisor, Fullscreen, Edit Button */}
       <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+        {/* Unit Dropdown Badge */}
+        {availableUnits && availableUnits.length > 0 && onUnitChange && (
+          <div className="h-8 flex items-center gap-1 bg-slate-950/80 border border-cyan-500/50 px-2 rounded-lg shadow-inner">
+            <Building2 className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+            <span className="text-[11px] text-slate-300 font-bold uppercase tracking-wider hidden sm:inline">Unit:</span>
+            <select
+              id="unit-dropdown-select"
+              value={unitName || 'Unit 01'}
+              onChange={(e) => onUnitChange(e.target.value)}
+              className="bg-slate-900 text-cyan-300 font-black text-xs rounded px-1.5 py-0.5 border border-cyan-500/40 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer"
+            >
+              {availableUnits.map((unit) => (
+                <option key={unit} value={unit} className="bg-slate-900 text-white font-bold">
+                  {unit}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Lane Dropdown Badge */}
         <div className="h-8 flex items-center gap-1 bg-slate-950/80 border border-cyan-500/50 px-2 rounded-lg shadow-inner">
           <Layers className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />

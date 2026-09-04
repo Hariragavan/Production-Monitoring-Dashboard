@@ -5,7 +5,7 @@ import { HourlyProductionChart } from '../components/dashboard/HourlyProductionC
 import { CriticalOperationsTable } from '../components/dashboard/CriticalOperationsTable';
 import { DowntimeSummaryTable } from '../components/dashboard/DowntimeSummaryTable';
 import { DowntimeDetailsTable } from '../components/dashboard/DowntimeDetailsTable';
-import { fetchDashboardData, subscribeToDashboardChanges, getAvailableLanes } from '../lib/dataService';
+import { fetchDashboardData, subscribeToDashboardChanges, getAvailableLanes, getAvailableUnits } from '../lib/dataService';
 import { isSupabaseConfigured } from '../lib/supabase';
 import type { DashboardData } from '../types';
 import { INITIAL_DEMO_DATA } from '../lib/seedData';
@@ -14,6 +14,8 @@ import { RefreshCw } from 'lucide-react';
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
+  const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
+  const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
   const [selectedHour] = useState<number>(4); // Default to current 4th hour
   const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
@@ -24,7 +26,7 @@ export const DashboardPage: React.FC = () => {
   const loadData = useCallback(async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
     try {
-      const fetched = await fetchDashboardData(selectedDate, selectedLane);
+      const fetched = await fetchDashboardData(selectedDate, selectedLane, selectedUnit);
       setData(fetched);
       setLastRefreshed(new Date());
     } catch (err) {
@@ -32,12 +34,23 @@ export const DashboardPage: React.FC = () => {
     } finally {
       if (showSpinner) setLoading(false);
     }
-  }, [selectedDate, selectedLane]);
+  }, [selectedDate, selectedLane, selectedUnit]);
 
-  // Initial load when date or lane changes
+  // Initial load when date, lane, or unit changes
   useEffect(() => {
     loadData(true);
   }, [loadData]);
+
+  // Real-time listener for units update
+  useEffect(() => {
+    const handleUnitsUpdated = (e: any) => {
+      if (e.detail?.units) {
+        setAvailableUnits(e.detail.units);
+      }
+    };
+    window.addEventListener('production-units-updated', handleUnitsUpdated);
+    return () => window.removeEventListener('production-units-updated', handleUnitsUpdated);
+  }, []);
 
   // Real-time listener for lanes update
   useEffect(() => {
@@ -63,7 +76,7 @@ export const DashboardPage: React.FC = () => {
 
   // Real-time listener + fallback polling for data changes
   useEffect(() => {
-    const unsubscribe = subscribeToDashboardChanges(data.day?.id || `${selectedDate}-${selectedLane}`, () => {
+    const unsubscribe = subscribeToDashboardChanges(data.day?.id || `${selectedUnit}-${selectedDate}-${selectedLane}`, () => {
       console.log('Real-time event detected, updating dashboard...');
       loadData(false);
     });
@@ -76,7 +89,7 @@ export const DashboardPage: React.FC = () => {
       unsubscribe();
       clearInterval(interval);
     };
-  }, [data.day?.id, loadData, selectedDate, selectedLane]);
+  }, [data.day?.id, loadData, selectedDate, selectedLane, selectedUnit]);
 
   const handleEditClick = () => {
     navigate('/edit');
@@ -86,6 +99,9 @@ export const DashboardPage: React.FC = () => {
     <div className="h-screen w-screen max-h-screen overflow-hidden bg-slate-100 flex flex-col justify-between text-slate-900 select-none">
       {/* Top Header Bar with Centered Date Navigation (Excludes Sunday) & Lane Controls */}
       <DashboardHeader
+        unitName={selectedUnit}
+        availableUnits={availableUnits}
+        onUnitChange={setSelectedUnit}
         productionDate={selectedDate}
         supervisorName={data.day?.supervisor_name || 'Supervisor'}
         supervisorId={data.day?.supervisor_id}

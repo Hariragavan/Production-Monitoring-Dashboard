@@ -27,6 +27,10 @@ import {
 
 interface BasicInfoEditorProps {
   unitName: string;
+  availableUnits?: string[];
+  onUnitChange?: (unit: string) => void;
+  onAddUnit?: (newUnit: string) => void;
+  onDeleteUnit?: (unit: string) => void;
   day: ProductionDay;
   availableLanes: string[];
   selectedLane: string;
@@ -39,6 +43,10 @@ interface BasicInfoEditorProps {
 
 export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   unitName,
+  availableUnits = ['Unit 01'],
+  onUnitChange,
+  onAddUnit,
+  onDeleteUnit,
   day,
   availableLanes,
   selectedLane,
@@ -48,6 +56,12 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
   onChange,
   onDateChange,
 }) => {
+  // Manufacturing Unit form state
+  const [newUnitInput, setNewUnitInput] = useState('');
+  const [unitError, setUnitError] = useState('');
+  const [unitFeedback, setUnitFeedback] = useState<string | null>(null);
+  const [showAddUnitForm, setShowAddUnitForm] = useState(false);
+
   // Production Lane form state
   const [newLaneInput, setNewLaneInput] = useState('');
   const [laneError, setLaneError] = useState('');
@@ -81,6 +95,32 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
     window.addEventListener('production-supervisors-updated', handleSupervisorsUpdated);
     return () => window.removeEventListener('production-supervisors-updated', handleSupervisorsUpdated);
   }, []);
+
+  // Manufacturing Unit Handler
+  const handleAddNewUnit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = newUnitInput.trim();
+    if (!trimmed) {
+      setUnitError('Please enter a unit name');
+      return;
+    }
+    const currentUnits = availableUnits || ['Unit 01'];
+    if (currentUnits.some((u) => u.toLowerCase() === trimmed.toLowerCase())) {
+      setUnitError('This unit already exists');
+      return;
+    }
+    if (onAddUnit) {
+      onAddUnit(trimmed);
+    }
+    if (onUnitChange) {
+      onUnitChange(trimmed);
+    }
+    setNewUnitInput('');
+    setUnitError('');
+    setShowAddUnitForm(false);
+    setUnitFeedback(`✓ Unit "${trimmed}" created successfully`);
+    setTimeout(() => setUnitFeedback(null), 3500);
+  };
 
   // Lane Handlers
   const handleAddNewLane = (e: React.FormEvent) => {
@@ -160,28 +200,126 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
 
   return (
     <div className="bg-white p-6 rounded-xl border border-slate-300 shadow-sm max-w-4xl mx-auto space-y-6">
-      {/* 1. BASIC INFORMATION: Manufacturing Unit & Production Date ONLY */}
+      {/* 1. BASIC INFORMATION: Manufacturing Unit & Production Date */}
       <div>
-        <h3 className="text-base font-bold text-slate-900 mb-3 pb-2 border-b border-slate-200 flex items-center gap-2">
-          <Building2 className="w-5 h-5 text-cyan-700" />
-          <span>Manufacturing Unit &amp; Production Date</span>
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Manufacturing Unit */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Manufacturing Unit
-            </label>
-            <div className="flex items-center gap-2.5 px-3 py-2 bg-slate-100 border border-slate-300 rounded-lg text-slate-800 font-bold text-sm">
-              <Building2 className="w-4 h-4 text-cyan-700" />
-              <span>{unitName || 'Unit 01'}</span>
+        <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-200">
+          <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-cyan-700" />
+            <span>Manufacturing Unit &amp; Production Date</span>
+          </h3>
+          {unitFeedback && (
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-bold border border-emerald-300 animate-in fade-in">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span>{unitFeedback}</span>
             </div>
-            <span className="text-[11px] text-slate-400 mt-1 block">Configured factory production unit.</span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Manufacturing Unit Section */}
+          <div className="lg:col-span-7 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                Select Manufacturing Unit:
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAddUnitForm(!showAddUnitForm);
+                  setUnitError('');
+                }}
+                id="btn-toggle-create-unit"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-700 hover:bg-cyan-800 text-white rounded-md text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{showAddUnitForm ? 'Close Form' : '+ Create Unit'}</span>
+              </button>
+            </div>
+
+            {/* Active Unit Selector Chips */}
+            <div className="flex flex-wrap gap-2">
+              {availableUnits.map((unit) => {
+                const isSelected = (unitName || 'Unit 01') === unit;
+                return (
+                  <div
+                    key={unit}
+                    className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-bold transition ${
+                      isSelected
+                        ? 'bg-[#134665] text-white border-[#0f3852] shadow-sm ring-2 ring-cyan-500/50'
+                        : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onUnitChange && onUnitChange(unit)}
+                      className="flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {isSelected ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />
+                      ) : (
+                        <Building2 className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                      )}
+                      <span className="font-black">{unit}</span>
+                    </button>
+
+                    {/* Delete custom unit button */}
+                    {availableUnits.length > 1 && unit !== 'Unit 01' && onDeleteUnit && (
+                      <button
+                        type="button"
+                        onClick={() => onDeleteUnit(unit)}
+                        title={`Delete ${unit}`}
+                        className="ml-1 text-slate-400 hover:text-rose-500 transition cursor-pointer p-0.5"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Create Unit Inline Form */}
+            {showAddUnitForm && (
+              <form onSubmit={handleAddNewUnit} className="bg-slate-50 p-3 rounded-lg border border-slate-200 animate-in fade-in space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
+                      <Building2 className="w-3.5 h-3.5" />
+                    </div>
+                    <input
+                      type="text"
+                      id="input-create-unit-name"
+                      value={newUnitInput}
+                      onChange={(e) => {
+                        setNewUnitInput(e.target.value);
+                        setUnitError('');
+                      }}
+                      placeholder="e.g. Unit 02 or Unit 02 - Assembly"
+                      className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-md text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    id="btn-submit-create-unit"
+                    className="inline-flex items-center gap-1 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-md text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Create Unit</span>
+                  </button>
+                </div>
+                {unitError && <p className="text-xs text-rose-600 font-semibold">{unitError}</p>}
+                <span className="text-[10px] text-slate-400 block">
+                  New manufacturing units will be available across the editor and dashboard.
+                </span>
+              </form>
+            )}
+            <span className="text-[11px] text-slate-400 block">
+              Active factory manufacturing unit for production operations.
+            </span>
           </div>
 
           {/* Production Date */}
-          <div>
+          <div className="lg:col-span-5">
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
               Production Date
             </label>

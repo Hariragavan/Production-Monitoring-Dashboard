@@ -81,6 +81,52 @@ export function deleteAvailableLane(laneToDelete: string): string[] {
   return updated;
 }
 
+// Manufacturing Units Master Directory
+const DEFAULT_UNITS = ['Unit 01'];
+const UNITS_STORAGE_KEY = 'sup_tv_dashboard_units';
+
+export function getAvailableUnits(): string[] {
+  try {
+    const stored = localStorage.getItem(UNITS_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_UNITS;
+}
+
+export function addAvailableUnit(newUnit: string): string[] {
+  const current = getAvailableUnits();
+  const trimmed = newUnit.trim();
+  if (!trimmed || current.includes(trimmed)) return current;
+  const updated = [...current, trimmed];
+  localStorage.setItem(UNITS_STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new CustomEvent('production-units-updated', { detail: { units: updated, added: trimmed } }));
+
+  // Auto-sync to Supabase units table if configured
+  if (isSupabaseConfigured && supabase) {
+    supabase.from('units').insert({ unit_name: trimmed }).then(({ error }) => {
+      if (error && error.code !== '23505') {
+        console.warn('Could not insert unit into Supabase:', error);
+      }
+    });
+  }
+
+  return updated;
+}
+
+export function deleteAvailableUnit(unitToDelete: string): string[] {
+  const current = getAvailableUnits();
+  if (current.length <= 1) return current; // Keep at least 1 unit
+  const updated = current.filter(u => u !== unitToDelete);
+  localStorage.setItem(UNITS_STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new CustomEvent('production-units-updated', { detail: { units: updated, deleted: unitToDelete } }));
+  return updated;
+}
+
 // Workers / Employees Master Directory
 export interface WorkerItem {
   name: string;
@@ -225,9 +271,10 @@ export function setLaneSupervisor(lane: string, supervisor: SupervisorItem): voi
 }
 
 // Get or initialize local storage data
-function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
-  const key = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
-  const stored = localStorage.getItem(key);
+function getLocalData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): DashboardData {
+  const keyWithUnit = `${LOCAL_STORAGE_KEY_PREFIX}${unitName}_${date}_${lane}`;
+  const legacyKey = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
+  const stored = localStorage.getItem(keyWithUnit) || (unitName === 'Unit 01' ? localStorage.getItem(legacyKey) : null);
   const laneSup = getLaneSupervisor(lane);
 
   if (stored) {
@@ -239,6 +286,14 @@ function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
         // Always assign the dedicated supervisor for this lane
         parsed.day.supervisor_name = laneSup.name;
         parsed.day.supervisor_id = laneSup.id;
+        if (!parsed.unit || !parsed.unit.unit_name) {
+          parsed.unit = {
+            id: `unit-${unitName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            unit_name: unitName,
+          };
+        } else {
+          parsed.unit.unit_name = unitName;
+        }
       }
       return parsed;
     } catch {
@@ -253,16 +308,24 @@ function getLocalData(date: string, lane = 'Lane 01'): DashboardData {
     initialData.day.lane_name = lane;
     initialData.day.supervisor_name = laneSup.name;
     initialData.day.supervisor_id = laneSup.id;
+    initialData.unit = {
+      id: `unit-${unitName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      unit_name: unitName,
+    };
   }
-  localStorage.setItem(key, JSON.stringify(initialData));
+  localStorage.setItem(keyWithUnit, JSON.stringify(initialData));
   return initialData;
 }
 
 // Save local storage data
-function saveLocalData(date: string, lane: string, data: DashboardData): void {
-  const key = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
+function saveLocalData(date: string, lane: string, unitName: string, data: DashboardData): void {
+  const keyWithUnit = `${LOCAL_STORAGE_KEY_PREFIX}${unitName}_${date}_${lane}`;
   const toStore: DashboardData = {
     ...data,
+    unit: {
+      id: data.unit?.id || `unit-${unitName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+      unit_name: unitName,
+    },
     day: {
       ...data.day,
       production_date: date,
@@ -275,22 +338,34 @@ function saveLocalData(date: string, lane: string, data: DashboardData): void {
       id: toStore.day.supervisor_id || 'SUP-01',
     });
   }
-  localStorage.setItem(key, JSON.stringify(toStore));
+  localStorage.setItem(keyWithUnit, JSON.stringify(toStore));
+  if (unitName === 'Unit 01') {
+    localStorage.setItem(`${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`, JSON.stringify(toStore));
+  }
   // Broadcast change across tabs and inside current window
-  window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane } }));
+  window.dispatchEvent(new CustomEvent('production-data-updated', { detail: { date, lane, unit: unitName } }));
 }
 
 // Fetch dashboard data (Supabase or Local Fallback)
 export async function fetchDashboardData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): Promise<DashboardData> {
-  // Check local storage first for user-saved data for this date + lane
-  const localKey = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
-  const storedLocal = localStorage.getItem(localKey);
+  // Check local storage first for user-saved data for this unit + date + lane
+  const localKey = `${LOCAL_STORAGE_KEY_PREFIX}${unitName}_${date}_${lane}`;
+  const legacyKey = `${LOCAL_STORAGE_KEY_PREFIX}${date}_${lane}`;
+  const storedLocal = localStorage.getItem(localKey) || (unitName === 'Unit 01' ? localStorage.getItem(legacyKey) : null);
   if (storedLocal) {
     try {
       const parsed = JSON.parse(storedLocal);
       if (parsed && parsed.day) {
         parsed.day.production_date = date;
         parsed.day.lane_name = lane;
+        if (!parsed.unit || !parsed.unit.unit_name) {
+          parsed.unit = {
+            id: `unit-${unitName.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+            unit_name: unitName,
+          };
+        } else {
+          parsed.unit.unit_name = unitName;
+        }
         return parsed;
       }
     } catch {
@@ -299,7 +374,7 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
   }
 
   if (!isSupabaseConfigured || !supabase) {
-    return getLocalData(date, lane);
+    return getLocalData(date, lane, unitName);
   }
 
   try {
@@ -427,7 +502,7 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
     };
   } catch (err) {
     console.error('Supabase query error, fallback to local storage:', err);
-    return getLocalData(date, lane);
+    return getLocalData(date, lane, unitName);
   }
 }
 
@@ -435,9 +510,10 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
 export async function saveDashboardData(data: DashboardData): Promise<{ success: boolean; error?: string; warning?: string }> {
   const date = data.day.production_date;
   const lane = data.day.lane_name || 'Lane 01';
+  const unitName = data.unit?.unit_name || 'Unit 01';
 
   // Always keep localStorage updated as immediate backup
-  saveLocalData(date, lane, data);
+  saveLocalData(date, lane, unitName, data);
 
   if (!isSupabaseConfigured || !supabase) {
     return { success: true };
@@ -445,9 +521,33 @@ export async function saveDashboardData(data: DashboardData): Promise<{ success:
 
   try {
     // 1. Update Production Day Info
+    let unitId = data.unit?.id;
+    if (unitName) {
+      try {
+        const { data: existingUnit } = await supabase
+          .from('units')
+          .select('id')
+          .eq('unit_name', unitName)
+          .maybeSingle();
+        if (!existingUnit) {
+          const { data: newUnit } = await supabase
+            .from('units')
+            .insert({ unit_name: unitName })
+            .select('id')
+            .single();
+          if (newUnit) unitId = newUnit.id;
+        } else {
+          unitId = existingUnit.id;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const { error: dayErr } = await supabase
       .from('production_days')
       .update({
+        unit_id: unitId || data.day.unit_id,
         shift: data.day.shift,
         supervisor_name: data.day.supervisor_name,
         worker_name: data.day.worker_name || '',

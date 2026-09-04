@@ -7,6 +7,9 @@ import {
   getAvailableLanes,
   addAvailableLane,
   deleteAvailableLane,
+  getAvailableUnits,
+  addAvailableUnit,
+  deleteAvailableUnit,
   getAvailableSupervisors,
   getLaneSupervisor,
   setLaneSupervisor,
@@ -32,6 +35,7 @@ import {
   Sliders,
   Layers,
   UserCheck,
+  Building2,
 } from 'lucide-react';
 
 type TabKey = 'basic' | 'hourly' | 'operations' | 'downtime-summary' | 'downtime-details';
@@ -50,6 +54,8 @@ export const EditPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<TabKey>('basic');
   const [selectedDate, setSelectedDate] = useState<string>('2026-09-01');
+  const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
+  const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>('Lane 01');
   const [availableLanes, setAvailableLanes] = useState<string[]>(getAvailableLanes);
   const [availableSupervisors, setAvailableSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
@@ -66,6 +72,17 @@ export const EditPage: React.FC = () => {
       navigate('/login');
     }
   }, [isAuthenticated, authLoading, navigate]);
+
+  // Real-time listener for units update
+  useEffect(() => {
+    const handleUnitsUpdated = (e: any) => {
+      if (e.detail?.units) {
+        setAvailableUnits(e.detail.units);
+      }
+    };
+    window.addEventListener('production-units-updated', handleUnitsUpdated);
+    return () => window.removeEventListener('production-units-updated', handleUnitsUpdated);
+  }, []);
 
   // Real-time listener for lanes update
   useEffect(() => {
@@ -89,15 +106,18 @@ export const EditPage: React.FC = () => {
     return () => window.removeEventListener('production-supervisors-updated', handleSupervisorsUpdated);
   }, []);
 
-  // Fetch data whenever selectedDate or selectedLane changes
+  // Fetch data whenever selectedDate, selectedLane, or selectedUnit changes
   useEffect(() => {
     let isMounted = true;
     const load = async () => {
       setLoading(true);
       try {
-        const fetched = await fetchDashboardData(selectedDate, selectedLane);
+        const fetched = await fetchDashboardData(selectedDate, selectedLane, selectedUnit);
         if (isMounted) {
           setData(fetched);
+          if (fetched.unit?.unit_name && fetched.unit.unit_name !== selectedUnit) {
+            setSelectedUnit(fetched.unit.unit_name);
+          }
         }
       } catch (err) {
         console.error('Failed to load data for edit:', err);
@@ -109,7 +129,7 @@ export const EditPage: React.FC = () => {
     return () => {
       isMounted = false;
     };
-  }, [selectedDate, selectedLane]);
+  }, [selectedDate, selectedLane, selectedUnit]);
 
   // Date Navigation Stepper (Excludes Sunday)
   const handleStepDate = (direction: number) => {
@@ -146,11 +166,15 @@ export const EditPage: React.FC = () => {
   // Handle Save
   const handleSave = async () => {
     setSaveStatus('saving');
-    setSaveMessage(`Saving data for ${selectedLane} (${selectedDate})...`);
+    setSaveMessage(`Saving data for ${selectedUnit} - ${selectedLane} (${selectedDate})...`);
 
     try {
       const dataToSave: DashboardData = {
         ...data,
+        unit: {
+          id: data.unit?.id || `unit-${selectedUnit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+          unit_name: selectedUnit,
+        },
         day: {
           ...data.day,
           production_date: selectedDate, // GUARANTEES IT SAVES IN THAT EXACT DATE!
@@ -160,7 +184,7 @@ export const EditPage: React.FC = () => {
       const result = await saveDashboardData(dataToSave);
       if (result.success) {
         setSaveStatus('success');
-        setSaveMessage(result.warning || `✓ Changes saved successfully for ${selectedLane} on ${selectedDate}`);
+        setSaveMessage(result.warning || `✓ Changes saved successfully for ${selectedUnit} - ${selectedLane} on ${selectedDate}`);
         setTimeout(() => {
           setSaveStatus('idle');
           setSaveMessage('');
@@ -264,14 +288,47 @@ export const EditPage: React.FC = () => {
 
       {/* Editor Body */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-4">
-        {/* ALL-TABS PERSISTENT SELECTOR: Select Lane, Date, & Supervisor Across All Tabs */}
+        {/* ALL-TABS PERSISTENT SELECTOR: Select Unit, Lane, Date, & Supervisor Across All Tabs */}
         <div className="bg-white border border-slate-300 rounded-xl p-3.5 shadow-xs space-y-2.5">
           <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-3">
-            {/* 1. Left: Interactive Lane Buttons */}
-            <div className="flex flex-wrap items-center gap-2.5">
+            {/* 1. Left: Unit and Lane Selectors */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Unit Dropdown */}
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1 text-xs font-black text-[#0f3852] uppercase tracking-wider">
+                  <Building2 className="w-4 h-4 text-cyan-700" />
+                  <span>Unit:</span>
+                </div>
+                <select
+                  id="header-unit-select"
+                  value={selectedUnit}
+                  onChange={(e) => {
+                    const newUnit = e.target.value;
+                    setSelectedUnit(newUnit);
+                    setData((prev) => ({
+                      ...prev,
+                      unit: {
+                        id: `unit-${newUnit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                        unit_name: newUnit,
+                      },
+                    }));
+                  }}
+                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer"
+                >
+                  {availableUnits.map((unit) => (
+                    <option key={unit} value={unit}>
+                      {unit}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="h-5 w-px bg-slate-300 hidden sm:block" />
+
+              {/* Lane Buttons */}
               <div className="flex items-center gap-1.5 text-xs font-black text-[#0f3852] uppercase tracking-wider">
                 <Layers className="w-4 h-4 text-cyan-700" />
-                <span>Editing Lane:</span>
+                <span>Lane:</span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
                 {availableLanes.map((lane) => {
@@ -449,13 +506,45 @@ export const EditPage: React.FC = () => {
         {loading ? (
           <div className="bg-white p-12 rounded-xl border border-slate-300 shadow-xs flex flex-col items-center justify-center gap-3">
             <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
-            <span className="text-sm font-bold text-slate-500">Loading {selectedLane} data for {selectedDate}...</span>
+            <span className="text-sm font-bold text-slate-500">
+              Loading {selectedUnit} - {selectedLane} data for {selectedDate}...
+            </span>
           </div>
         ) : (
           <div className="space-y-4">
             {activeTab === 'basic' && (
               <BasicInfoEditor
-                unitName={data.unit?.unit_name || 'Unit 01'}
+                unitName={selectedUnit}
+                availableUnits={availableUnits}
+                onUnitChange={(unit) => {
+                  setSelectedUnit(unit);
+                  setData((prev) => ({
+                    ...prev,
+                    unit: {
+                      id: `unit-${unit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                      unit_name: unit,
+                    },
+                  }));
+                }}
+                onAddUnit={(unit) => {
+                  const updated = addAvailableUnit(unit);
+                  setAvailableUnits(updated);
+                  setSelectedUnit(unit);
+                  setData((prev) => ({
+                    ...prev,
+                    unit: {
+                      id: `unit-${unit.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+                      unit_name: unit,
+                    },
+                  }));
+                }}
+                onDeleteUnit={(unit) => {
+                  const updated = deleteAvailableUnit(unit);
+                  setAvailableUnits(updated);
+                  if (selectedUnit === unit && updated.length > 0) {
+                    setSelectedUnit(updated[0]);
+                  }
+                }}
                 day={data.day}
                 availableLanes={availableLanes}
                 selectedLane={selectedLane}
