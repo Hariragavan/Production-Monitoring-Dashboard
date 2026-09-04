@@ -86,7 +86,15 @@ CREATE TABLE IF NOT EXISTS downtime_details (
     updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 7. Disable RLS and add public access policies so all web writes succeed
+-- 7. Grant full permissions to anon and authenticated roles
+GRANT ALL ON TABLE units TO anon, authenticated, service_role;
+GRANT ALL ON TABLE production_days TO anon, authenticated, service_role;
+GRANT ALL ON TABLE hourly_production TO anon, authenticated, service_role;
+GRANT ALL ON TABLE critical_operations TO anon, authenticated, service_role;
+GRANT ALL ON TABLE downtime_summary TO anon, authenticated, service_role;
+GRANT ALL ON TABLE downtime_details TO anon, authenticated, service_role;
+
+-- 8. Disable RLS and create permissive policies
 ALTER TABLE units DISABLE ROW LEVEL SECURITY;
 ALTER TABLE production_days DISABLE ROW LEVEL SECURITY;
 ALTER TABLE hourly_production DISABLE ROW LEVEL SECURITY;
@@ -94,7 +102,14 @@ ALTER TABLE critical_operations DISABLE ROW LEVEL SECURITY;
 ALTER TABLE downtime_summary DISABLE ROW LEVEL SECURITY;
 ALTER TABLE downtime_details DISABLE ROW LEVEL SECURITY;
 
--- 8. Set Replica Identity to FULL for accurate Realtime updates
+CREATE POLICY "Allow all units" ON units FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all production_days" ON production_days FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all hourly_production" ON hourly_production FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all critical_operations" ON critical_operations FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all downtime_summary" ON downtime_summary FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all downtime_details" ON downtime_details FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+-- 9. Set Replica Identity to FULL for accurate Realtime updates
 ALTER TABLE units REPLICA IDENTITY FULL;
 ALTER TABLE production_days REPLICA IDENTITY FULL;
 ALTER TABLE hourly_production REPLICA IDENTITY FULL;
