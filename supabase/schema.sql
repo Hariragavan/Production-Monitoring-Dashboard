@@ -178,5 +178,15 @@ ALTER TABLE workers REPLICA IDENTITY FULL;
 DROP POLICY IF EXISTS "Allow all workers" ON workers;
 CREATE POLICY "Allow all workers" ON workers FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
+-- 11. Operation Types Master Directory
+CREATE TABLE IF NOT EXISTS operation_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    operation_name VARCHAR(150) NOT NULL UNIQUE,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
 
-
+GRANT ALL ON TABLE operation_types TO anon, authenticated, service_role;
+ALTER TABLE operation_types DISABLE ROW LEVEL SECURITY;
+ALTER TABLE operation_types REPLICA IDENTITY FULL;
+DROP POLICY IF EXISTS "Allow all operations" ON operation_types;
+CREATE POLICY "Allow all operations" ON operation_types FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
