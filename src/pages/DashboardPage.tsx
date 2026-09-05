@@ -19,6 +19,8 @@ import type { DashboardData } from '../types';
 import { INITIAL_DEMO_DATA } from '../lib/seedData';
 import { RefreshCw } from 'lucide-react';
 
+import { startupDiagnostic } from '../lib/startupDiagnostic';
+
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const [selectedDate, setSelectedDate] = useState<string>(getTodayDateString);
@@ -31,8 +33,14 @@ export const DashboardPage: React.FC = () => {
   const [selectedHour] = useState<number>(4); // Default to current 4th hour
   const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected' | 'offline'>('idle');
   const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+
+  // Log mounting for TV diagnostics
+  useEffect(() => {
+    startupDiagnostic.log('DashboardPage mounted - UI rendered immediately', 'success');
+  }, []);
 
   // Sync available lanes for selectedUnit and units from database across all devices
   useEffect(() => {
@@ -63,25 +71,33 @@ export const DashboardPage: React.FC = () => {
 
   const isFetchingRef = useRef(false);
 
-  const loadData = useCallback(async (showSpinner = false) => {
+  const loadData = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
-    if (showSpinner) setLoading(true);
+    setIsSyncing(true);
+    startupDiagnostic.log(`Fetching dashboard data for ${selectedUnit} ${selectedDate} ${selectedLane}`);
+
     try {
       const fetched = await fetchDashboardData(selectedDate, selectedLane, selectedUnit);
-      setData(fetched);
-      setLastRefreshed(new Date());
+      if (fetched) {
+        setData(fetched);
+        setLastRefreshed(new Date());
+        setSyncStatus('connected');
+        startupDiagnostic.log('Dashboard data fetched successfully', 'success');
+      }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
+      setSyncStatus('offline');
+      startupDiagnostic.log('Dashboard data fetch failed, using offline cache', 'warn', err);
     } finally {
-      if (showSpinner) setLoading(false);
+      setIsSyncing(false);
       isFetchingRef.current = false;
     }
   }, [selectedDate, selectedLane, selectedUnit]);
 
   // Initial load when date, lane, or unit changes
   useEffect(() => {
-    loadData(true);
+    loadData();
   }, [loadData]);
 
   // Real-time listener for units update
@@ -110,27 +126,36 @@ export const DashboardPage: React.FC = () => {
   useEffect(() => {
     const handleDataUpdated = (e: any) => {
       if (!e.detail?.date || e.detail.date === selectedDate) {
-        loadData(false);
+        loadData();
       }
     };
     window.addEventListener('production-data-updated', handleDataUpdated);
     return () => window.removeEventListener('production-data-updated', handleDataUpdated);
   }, [selectedDate, loadData]);
 
-  // Real-time listener + fallback polling for data changes (stable dependencies to avoid subscription flicker)
+  // Real-time listener + fallback polling for data changes (deferred subscription to ensure fast startup)
   useEffect(() => {
-    const channelKey = `${selectedUnit}_${selectedDate}_${selectedLane}`;
-    const unsubscribe = subscribeToDashboardChanges(channelKey, () => {
-      loadData(false);
-    });
+    let unsubscribe = () => {};
+    // Delay Realtime subscription by 1.5 seconds so initial render and mount are 100% instantaneous
+    const timer = setTimeout(() => {
+      const channelKey = `${selectedUnit}_${selectedDate}_${selectedLane}`;
+      try {
+        unsubscribe = subscribeToDashboardChanges(channelKey, () => {
+          loadData();
+        });
+      } catch (err) {
+        console.warn('[TV] Realtime subscription deferred error:', err);
+      }
+    }, 1500);
 
     // 5-minute auto-refresh cycle for continuous TV dashboard display
     const FIVE_MINUTES_MS = 5 * 60 * 1000;
     const interval = setInterval(() => {
-      loadData(false);
+      loadData();
     }, FIVE_MINUTES_MS);
 
     return () => {
+      clearTimeout(timer);
       unsubscribe();
       clearInterval(interval);
     };
@@ -157,45 +182,44 @@ export const DashboardPage: React.FC = () => {
         onEditClick={handleEditClick}
       />
 
-      {/* Main Single-Page Unified Container (Optimized to fit TV screen) */}
+      {/* Main Single-Page Unified Container (Optimized to fit TV screen - Renders UI immediately) */}
       <main className="flex-1 w-full max-w-[1920px] mx-auto px-2.5 py-1.5 min-h-0 overflow-y-auto flex flex-col gap-2">
-        {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
-            <RefreshCw className="w-10 h-10 text-cyan-700 animate-spin" />
-            <p className="text-sm font-bold text-slate-600 tracking-wider uppercase">
-              Loading Live TV Dashboard...
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* 1. TOP: Hourly Output vs Target Progression Chart (Sleek TV fit) */}
-            <div className="w-full flex-shrink-0 h-[180px]">
-              <HourlyProductionChart hourly={data.hourly} selectedHour={selectedHour} />
-            </div>
+        {/* 1. TOP: Hourly Output vs Target Progression Chart (Sleek TV fit) */}
+        <div className="w-full flex-shrink-0 h-[180px]">
+          <HourlyProductionChart hourly={data.hourly} selectedHour={selectedHour} />
+        </div>
 
-            {/* 2. Critical Operations Performance Table (Directly after the chart) */}
-            <div className="w-full flex-shrink-0">
-              <CriticalOperationsTable operations={data.criticalOperations} />
-            </div>
+        {/* 2. Critical Operations Performance Table (Directly after the chart) */}
+        <div className="w-full flex-shrink-0">
+          <CriticalOperationsTable operations={data.criticalOperations} />
+        </div>
 
-            {/* 3. Downtime Summary & Incident Details Tables Side-by-Side (Shrunk with Total) */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-1 flex-shrink-0">
-              <DowntimeSummaryTable downtimeSummary={data.downtimeSummary} />
-              <DowntimeDetailsTable downtimeDetails={data.downtimeDetails} />
-            </div>
-          </>
-        )}
+        {/* 3. Downtime Summary & Incident Details Tables Side-by-Side (Shrunk with Total) */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 pb-1 flex-shrink-0">
+          <DowntimeSummaryTable downtimeSummary={data.downtimeSummary} />
+          <DowntimeDetailsTable downtimeDetails={data.downtimeDetails} />
+        </div>
       </main>
 
       {/* Bottom TV Status Strip (Fixed Height: 28px) */}
       <footer className="h-7 flex-shrink-0 w-full px-4 flex items-center justify-between text-[11px] text-slate-600 font-semibold border-t border-slate-300 bg-white/95">
         <div className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span
+            className={`inline-block w-2 h-2 rounded-full ${
+              syncStatus === 'offline' ? 'bg-amber-500' : 'bg-emerald-500'
+            } ${isSyncing ? 'animate-spin' : 'animate-pulse'}`}
+          ></span>
           <span className="text-slate-700">
-            {isSupabaseConfigured ? 'Supabase Cloud Sync Active' : 'Local Storage Sync'}
+            {isSyncing
+              ? 'Syncing Live Cloud Data...'
+              : syncStatus === 'offline'
+                ? 'Local Cache / Offline Mode'
+                : isSupabaseConfigured
+                  ? 'Supabase Cloud Sync Active'
+                  : 'Local Storage Sync'}
           </span>
           <span className="text-slate-300">|</span>
-          <span className="text-[#0f3852] font-bold">Active Lane: {selectedLane}</span>
+          <span className="text-[#0f3852] font-bold">Active Lane: {selectedLane || 'All Lanes'}</span>
         </div>
         <div className="flex items-center gap-3">
           <span>Date: <strong className="text-slate-700">{selectedDate}</strong></span>
@@ -204,11 +228,11 @@ export const DashboardPage: React.FC = () => {
           <span className="text-slate-300">|</span>
           <button
             type="button"
-            onClick={() => loadData(true)}
+            onClick={() => loadData()}
             title="Click to refresh now (auto-refreshes every 5 mins)"
             className="flex items-center gap-1 text-cyan-800 hover:text-cyan-900 font-bold transition cursor-pointer"
           >
-            <RefreshCw className="w-3 h-3" />
+            <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-cyan-600' : ''}`} />
             <span>Auto: 5 mins</span>
           </button>
         </div>

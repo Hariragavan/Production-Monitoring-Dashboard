@@ -1,4 +1,4 @@
-import { supabase, isSupabaseConfigured } from './supabase';
+import { supabase, isSupabaseConfigured, withTimeout } from './supabase';
 import type { DashboardData, HourlyProduction, CriticalOperation, DowntimeSummaryItem, DowntimeDetailItem } from '../types';
 import { getSeedDataForLane } from './seedData';
 
@@ -139,36 +139,44 @@ export function getAvailableLanes(unitName: string = 'Unit 01'): string[] {
 export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promise<string[]> {
   if (isSupabaseConfigured && supabase) {
     try {
-      // 1. Fetch unit_id for this unit
-      const { data: unitData } = await supabase
-        .from('units')
-        .select('id')
-        .eq('unit_name', unitName)
-        .maybeSingle();
+      return await withTimeout(
+        (async () => {
+          // 1. Fetch unit_id for this unit
+          const { data: unitData } = await supabase!
+            .from('units')
+            .select('id')
+            .eq('unit_name', unitName)
+            .maybeSingle();
 
-      if (unitData?.id) {
-        const { data } = await supabase
-          .from('production_days')
-          .select('lane_name')
-          .eq('unit_id', unitData.id);
+          if (unitData?.id) {
+            const { data } = await supabase!
+              .from('production_days')
+              .select('lane_name')
+              .eq('unit_id', unitData.id);
 
-        if (data && data.length > 0) {
-          const deleted = getDeletedLanes(unitName);
-          // Never resurrect lanes the user explicitly deleted!
-          const lanesFromDb = Array.from(
-            new Set(data.map((d: any) => d.lane_name).filter((l: any) => Boolean(l) && !deleted.has(l)))
-          );
+            if (data && data.length > 0) {
+              const deleted = getDeletedLanes(unitName);
+              // Never resurrect lanes the user explicitly deleted!
+              const lanesFromDb = Array.from(
+                new Set(data.map((d: any) => d.lane_name).filter((l: any) => Boolean(l) && !deleted.has(l)))
+              );
 
-          if (lanesFromDb.length > 0) {
-            const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
-            localStorage.setItem(key, JSON.stringify(lanesFromDb));
-            window.dispatchEvent(
-              new CustomEvent('production-lanes-updated', { detail: { lanes: lanesFromDb, unitName } })
-            );
-            return lanesFromDb;
+              if (lanesFromDb.length > 0) {
+                const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
+                localStorage.setItem(key, JSON.stringify(lanesFromDb));
+                window.dispatchEvent(
+                  new CustomEvent('production-lanes-updated', { detail: { lanes: lanesFromDb, unitName } })
+                );
+                return lanesFromDb;
+              }
+            }
           }
-        }
-      }
+          return getAvailableLanes(unitName);
+        })(),
+        3500,
+        getAvailableLanes(unitName),
+        `Sync Lanes (${unitName})`
+      );
     } catch (err) {
       console.warn(`Could not sync lanes for ${unitName} from Supabase:`, err);
     }
@@ -363,15 +371,23 @@ export function getAvailableUnits(): string[] {
 export async function syncUnitsFromSupabase(): Promise<string[]> {
   if (isSupabaseConfigured && supabase) {
     try {
-      const { data } = await supabase.from('units').select('unit_name');
-      if (data && data.length > 0) {
-        const unitsFromDb = data.map(d => d.unit_name).filter(Boolean);
-        const current = getAvailableUnits();
-        const merged = Array.from(new Set([...current, ...unitsFromDb]));
-        localStorage.setItem(UNITS_STORAGE_KEY, JSON.stringify(merged));
-        window.dispatchEvent(new CustomEvent('production-units-updated', { detail: { units: merged } }));
-        return merged;
-      }
+      return await withTimeout(
+        (async () => {
+          const { data } = await supabase!.from('units').select('unit_name');
+          if (data && data.length > 0) {
+            const unitsFromDb = data.map(d => d.unit_name).filter(Boolean);
+            const current = getAvailableUnits();
+            const merged = Array.from(new Set([...current, ...unitsFromDb]));
+            localStorage.setItem(UNITS_STORAGE_KEY, JSON.stringify(merged));
+            window.dispatchEvent(new CustomEvent('production-units-updated', { detail: { units: merged } }));
+            return merged;
+          }
+          return getAvailableUnits();
+        })(),
+        3500,
+        getAvailableUnits(),
+        'Sync Units'
+      );
     } catch (err) {
       console.warn('Could not sync units from Supabase:', err);
     }
@@ -976,103 +992,115 @@ function saveLocalData(date: string, lane: string, unitName: string, data: Dashb
   }
 }
 
-// Fetch dashboard data (Supabase First, Local Fallback)
+// Fetch dashboard data (Supabase First, Local Fallback with Enforced Timeout)
 export async function fetchDashboardData(date: string, lane = 'Lane 01', unitName = 'Unit 01'): Promise<DashboardData> {
-  // 1. If Supabase is configured, prioritize live database data
+  // 1. If Supabase is configured, prioritize live database data with strict timeout protection
   if (isSupabaseConfigured && supabase) {
     try {
-      // 1a. Resolve or create Unit
-      let { data: unit, error: unitError } = await supabase
-        .from('units')
-        .select('*')
-        .eq('unit_name', unitName)
-        .maybeSingle();
+      const liveData = await withTimeout(
+        (async () => {
+          // 1a. Resolve or create Unit
+          let { data: unit, error: unitError } = await supabase!
+            .from('units')
+            .select('*')
+            .eq('unit_name', unitName)
+            .maybeSingle();
 
-      if (unitError || !unit) {
-        const { data: newUnit, error: insertUnitErr } = await supabase
-          .from('units')
-          .insert({ unit_name: unitName })
-          .select()
-          .single();
-        if (insertUnitErr) {
-          console.warn('Could not insert unit in Supabase:', insertUnitErr);
-        } else {
-          unit = newUnit;
-        }
-      }
-
-      if (unit?.id) {
-        // 1b. Query production_days by unit_id + production_date + lane_name (ordered to gracefully handle any duplicates)
-        const { data: dayList } = await supabase
-          .from('production_days')
-          .select('*')
-          .eq('unit_id', unit.id)
-          .eq('production_date', date)
-          .eq('lane_name', lane)
-          .order('updated_at', { ascending: false });
-
-        let day = dayList && dayList.length > 0 ? dayList[0] : null;
-
-        // Clean up redundant duplicate rows if any exist in DB
-        if (dayList && dayList.length > 1) {
-          const duplicateIds = dayList.slice(1).map((d: any) => d.id);
-          supabase.from('production_days').delete().in('id', duplicateIds).then();
-        }
-
-        // If not found in database, return clean local data without auto-creating rows in Supabase
-        if (!day) {
-          return getLocalData(date, lane, unitName);
-        }
-
-        if (day) {
-          // 1c. Fetch all child tables in parallel
-          const [hourlyRes, opsRes, dtSumRes, dtDetRes] = await Promise.all([
-            supabase.from('hourly_production').select('*').eq('production_day_id', day.id).order('hour', { ascending: true }),
-            supabase.from('critical_operations').select('*').eq('production_day_id', day.id).order('operation_no', { ascending: true }).order('hour', { ascending: true }),
-            supabase.from('downtime_summary').select('*').eq('production_day_id', day.id).order('category', { ascending: true }).order('hour', { ascending: true }),
-            supabase.from('downtime_details').select('*').eq('production_day_id', day.id).order('id', { ascending: true }),
-          ]);
-
-          let hourly = (hourlyRes.data || []) as HourlyProduction[];
-          if (hourly.length < 10) {
-            const existingHours = new Set(hourly.map(h => h.hour));
-            const missing: any[] = [];
-            for (let h = 1; h <= 10; h++) {
-              if (!existingHours.has(h)) {
-                missing.push({
-                  production_day_id: day.id,
-                  hour: h,
-                  input_available: 0,
-                  target: 0,
-                  actual: 0,
-                });
-              }
-            }
-            if (missing.length > 0) {
-              await supabase.from('hourly_production').insert(missing);
-              hourly = [...hourly, ...missing].sort((a, b) => a.hour - b.hour);
+          if (unitError || !unit) {
+            const { data: newUnit, error: insertUnitErr } = await supabase!
+              .from('units')
+              .insert({ unit_name: unitName })
+              .select()
+              .single();
+            if (insertUnitErr) {
+              console.warn('Could not insert unit in Supabase:', insertUnitErr);
+            } else {
+              unit = newUnit;
             }
           }
 
-          const liveData: DashboardData = {
-            unit,
-            day: {
-              ...day,
-              shift: 'Shift 01',
-            },
-            hourly,
-            criticalOperations: (opsRes.data || []) as CriticalOperation[],
-            downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
-            downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
-          };
+          if (unit?.id) {
+            // 1b. Query production_days by unit_id + production_date + lane_name (ordered to gracefully handle any duplicates)
+            const { data: dayList } = await supabase!
+              .from('production_days')
+              .select('*')
+              .eq('unit_id', unit.id)
+              .eq('production_date', date)
+              .eq('lane_name', lane)
+              .order('updated_at', { ascending: false });
 
-          // Cache in local storage for offline resiliency (DO NOT broadcast, this is read caching)
-          saveLocalData(date, lane, unitName, liveData, false);
-          return liveData;
-        }
+            let day = dayList && dayList.length > 0 ? dayList[0] : null;
+
+            // Clean up redundant duplicate rows if any exist in DB
+            if (dayList && dayList.length > 1) {
+              const duplicateIds = dayList.slice(1).map((d: any) => d.id);
+              supabase!.from('production_days').delete().in('id', duplicateIds).then();
+            }
+
+            // If not found in database, return clean local data without auto-creating rows in Supabase
+            if (!day) {
+              return getLocalData(date, lane, unitName);
+            }
+
+            if (day) {
+              // 1c. Fetch all child tables in parallel
+              const [hourlyRes, opsRes, dtSumRes, dtDetRes] = await Promise.all([
+                supabase!.from('hourly_production').select('*').eq('production_day_id', day.id).order('hour', { ascending: true }),
+                supabase!.from('critical_operations').select('*').eq('production_day_id', day.id).order('operation_no', { ascending: true }).order('hour', { ascending: true }),
+                supabase!.from('downtime_summary').select('*').eq('production_day_id', day.id).order('category', { ascending: true }).order('hour', { ascending: true }),
+                supabase!.from('downtime_details').select('*').eq('production_day_id', day.id).order('id', { ascending: true }),
+              ]);
+
+              let hourly = (hourlyRes.data || []) as HourlyProduction[];
+              if (hourly.length < 10) {
+                const existingHours = new Set(hourly.map(h => h.hour));
+                const missing: any[] = [];
+                for (let h = 1; h <= 10; h++) {
+                  if (!existingHours.has(h)) {
+                    missing.push({
+                      production_day_id: day.id,
+                      hour: h,
+                      input_available: 0,
+                      target: 0,
+                      actual: 0,
+                    });
+                  }
+                }
+                if (missing.length > 0) {
+                  await supabase!.from('hourly_production').insert(missing);
+                  hourly = [...hourly, ...missing].sort((a, b) => a.hour - b.hour);
+                }
+              }
+
+              const result: DashboardData = {
+                unit,
+                day: {
+                  ...day,
+                  shift: 'Shift 01',
+                },
+                hourly,
+                criticalOperations: (opsRes.data || []) as CriticalOperation[],
+                downtimeSummary: (dtSumRes.data || []) as DowntimeSummaryItem[],
+                downtimeDetails: (dtDetRes.data || []) as DowntimeDetailItem[],
+              };
+
+              // Cache in local storage for offline resiliency (DO NOT broadcast, this is read caching)
+              saveLocalData(date, lane, unitName, result, false);
+              return result;
+            }
+          }
+          return null;
+        })(),
+        4500,
+        null,
+        'Fetch Dashboard Data'
+      );
+
+      if (liveData) {
+        return liveData;
       }
     } catch (err) {
-      console.warn('Supabase query failed, falling back to local storage cache:', err);
+      console.warn('[TV] Supabase query failed or timed out, returning local cache immediately:', err);
     }
   }
 
@@ -1320,33 +1348,43 @@ export function subscribeToDashboardChanges(
   };
   window.addEventListener('storage', handleStorageUpdate);
 
-  // 2. Supabase Realtime channel if connected
+  // 2. Supabase Realtime channel if connected (deferred so it NEVER blocks initial render)
   let supabaseChannel: any = null;
+  let isCleanedUp = false;
+
   if (isSupabaseConfigured && supabase) {
-    try {
-      supabaseChannel = supabase
-        .channel(`prod-day-${currentDayId}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'production_days' }, () => debouncedUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'hourly_production' }, () => debouncedUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'critical_operations' }, () => debouncedUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_summary' }, () => debouncedUpdate())
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_details' }, () => debouncedUpdate())
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('Connected to Supabase Realtime channel for production updates');
-          }
-        });
-    } catch (err) {
-      console.warn('Realtime subscription error:', err);
-    }
+    setTimeout(() => {
+      if (isCleanedUp) return;
+      try {
+        supabaseChannel = supabase!
+          .channel(`prod-day-${currentDayId}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'production_days' }, () => debouncedUpdate())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'hourly_production' }, () => debouncedUpdate())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'critical_operations' }, () => debouncedUpdate())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_summary' }, () => debouncedUpdate())
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'downtime_details' }, () => debouncedUpdate())
+          .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              console.log('[TV] Connected to Supabase Realtime channel for production updates');
+            }
+          });
+      } catch (err) {
+        console.warn('[TV] Realtime subscription unavailable (relying on polling fallback):', err);
+      }
+    }, 1200);
   }
 
   // Return unsubscription cleanup
   return () => {
+    isCleanedUp = true;
     if (debounceTimer) clearTimeout(debounceTimer);
     window.removeEventListener('storage', handleStorageUpdate);
     if (supabaseChannel && supabase) {
-      supabase.removeChannel(supabaseChannel);
+      try {
+        supabase.removeChannel(supabaseChannel);
+      } catch {
+        // ignore
+      }
     }
   };
 }

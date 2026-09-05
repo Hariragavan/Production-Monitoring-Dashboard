@@ -23,35 +23,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isDemoAuth, setIsDemoAuth] = useState<boolean>(false);
 
   useEffect(() => {
+    // Safety timeout: ensure isLoading is never true for more than 2 seconds on Smart TVs
+    const safetyTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 2000);
+
     if (isSupabaseConfigured && supabase) {
-      // Get initial session
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
-      });
+      // Get initial session with error catch
+      supabase.auth
+        .getSession()
+        .then(({ data: { session } }) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setIsLoading(false);
+        })
+        .catch((err) => {
+          console.warn('[TV] Supabase getSession failed, falling back:', err);
+          setIsLoading(false);
+        });
 
       // Listen for auth changes
-      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
-        setIsLoading(false);
-      });
+      try {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+          setIsLoading(false);
+        });
 
-      return () => subscription.unsubscribe();
+        return () => {
+          clearTimeout(safetyTimer);
+          subscription.unsubscribe();
+        };
+      } catch (err) {
+        console.warn('[TV] onAuthStateChange subscription failed:', err);
+        return () => clearTimeout(safetyTimer);
+      }
     } else {
       // Check demo user in localStorage
-      const demoStored = localStorage.getItem(DEMO_USER_KEY);
-      if (demoStored) {
-        try {
+      try {
+        const demoStored = localStorage.getItem(DEMO_USER_KEY);
+        if (demoStored) {
           const parsed = JSON.parse(demoStored);
           setUser(parsed);
           setIsDemoAuth(true);
-        } catch {
-          // ignore
         }
+      } catch {
+        // ignore
       }
       setIsLoading(false);
+      return () => clearTimeout(safetyTimer);
     }
   }, []);
 
