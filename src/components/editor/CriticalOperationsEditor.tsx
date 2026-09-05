@@ -92,6 +92,42 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   // Helper: operation is CHECKER
   const isChecker = (name?: string) => (name || '').trim().toUpperCase().includes('CHECKER');
 
+  // Globally unique ID generator - NEVER depends on operation_no!
+  const generateUniqueOpId = (): string => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return `co_${crypto.randomUUID()}`;
+    }
+    return `co_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${Math.random().toString(36).substring(2, 9)}`;
+  };
+
+  // Self-heal: ensure every operation has a strictly unique ID so no two rows ever share an ID or sync inputs
+  useEffect(() => {
+    if (!operations || operations.length === 0) return;
+    const seen = new Set<string>();
+    let needsFix = false;
+
+    for (const op of operations) {
+      if (!op.id || seen.has(op.id)) {
+        needsFix = true;
+        break;
+      }
+      seen.add(op.id);
+    }
+
+    if (needsFix) {
+      const uniqueIds = new Set<string>();
+      const fixed = operations.map((op) => {
+        let opId = op.id;
+        if (!opId || uniqueIds.has(opId)) {
+          opId = generateUniqueOpId();
+        }
+        uniqueIds.add(opId);
+        return { ...op, id: opId };
+      });
+      onChange(fixed);
+    }
+  }, [operations, onChange]);
+
   // Filter operations for current active hour
   // Rule 1: CHECKER is ALWAYS in the last row, whatever device no!
   // Rule 2: Ordered by custom table row_order (Up/Down arrows) - NO order by device no!
@@ -123,6 +159,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
   // Move operation row Up or Down in the table
   const handleMoveOp = (opId: string | undefined, direction: 'up' | 'down') => {
+    if (!opId) return;
     const currentIndex = currentHourOps.findIndex((o) => o.id === opId);
     if (currentIndex < 0) return;
 
@@ -173,6 +210,22 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     field: keyof CriticalOperation,
     value: any
   ) => {
+    if (!opId) return;
+
+    // If changing device number, check if another device in this hour already uses this number
+    if (field === 'operation_no') {
+      const numVal = Number(value) || 0;
+      if (numVal > 0) {
+        const isDuplicate = operations.some(
+          (o) => o.id !== opId && o.hour === activeHour && o.operation_no === numVal
+        );
+        if (isDuplicate) {
+          setOpFeedback(`⚠️ Warning: Device #${numVal} is already in use in this hour! Each device should have a unique number.`);
+          setTimeout(() => setOpFeedback(null), 4000);
+        }
+      }
+    }
+
     const updated = operations.map((op) => {
       if (op.id === opId) {
         const changed = { ...op, [field]: value };
@@ -252,27 +305,22 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       nextDeviceNo++;
     }
 
-    // 3. Pre-fill template details if this slot exists in other hours
-    const templateOp = operations.find((o) => o.operation_no === nextDeviceNo);
     const defaultWorker = availableWorkers[(nextDeviceNo - 1) % availableWorkers.length] || { name: 'WORKER', id: '101' };
     const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
-    const defaultOp = templateOp?.operation_name || opPool[(nextDeviceNo - 1) % opPool.length];
-    const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 0;
-    const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
-    const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
+    const defaultOp = opPool[(nextDeviceNo - 1) % opPool.length];
 
     const nonCheckerCount = currentHourOps.filter((o) => !isChecker(o.operation_name)).length;
     const newRowOrder = isChecker(defaultOp) ? currentHourOps.length + 1 : nonCheckerCount + 1;
 
     const newOp: CriticalOperation = {
-      id: `co-${nextDeviceNo}-${activeHour}-${Date.now()}`,
+      id: generateUniqueOpId(),
       operation_no: nextDeviceNo,
       operation_name: defaultOp,
-      worker_name: defaultWorkerName,
-      worker_id: defaultWorkerId,
+      worker_name: defaultWorker.name,
+      worker_id: defaultWorker.id,
       hour: activeHour,
       production: 0,
-      target: defaultTarget,
+      target: 0,
       completed: false,
       status: 'in_progress',
       row_order: newRowOrder,
@@ -345,6 +393,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
   // Delete operation from this hour
   const handleDeleteOp = (opId: string | undefined) => {
+    if (!opId) return;
     const updated = operations.filter((op) => op.id !== opId);
     onChange(updated);
   };
@@ -357,15 +406,29 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     // Remove existing ops for activeHour
     const otherOps = operations.filter((op) => op.hour !== activeHour);
 
+    // Track used device numbers to prevent duplicate device numbers in activeHour
+    const usedDevNumbers = new Set<number>();
+
     // Clone source ops with activeHour and initial production
-    const clonedOps: CriticalOperation[] = sourceOps.map((op) => ({
-      ...op,
-      id: `co-${op.operation_no}-${activeHour}-${Date.now()}`,
-      hour: activeHour,
-      production: op.production,
-      target: op.target,
-      completed: op.production >= op.target,
-    }));
+    const clonedOps: CriticalOperation[] = sourceOps.map((op) => {
+      let devNo = op.operation_no;
+      if (usedDevNumbers.has(devNo) || devNo <= 0) {
+        let candidate = 1;
+        while (usedDevNumbers.has(candidate)) candidate++;
+        devNo = candidate;
+      }
+      usedDevNumbers.add(devNo);
+
+      return {
+        ...op,
+        id: generateUniqueOpId(),
+        operation_no: devNo,
+        hour: activeHour,
+        production: op.production,
+        target: op.target,
+        completed: op.production >= op.target,
+      };
+    });
 
     onChange([...otherOps, ...clonedOps]);
     setCopyFeedback(`✓ Copied ${clonedOps.length} operators from ${sourceHour}${getSuffix(sourceHour)} Hour!`);
@@ -381,10 +444,20 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
     const futureOps: CriticalOperation[] = [];
     for (let h = activeHour + 1; h <= 10; h++) {
+      const usedDevNumbers = new Set<number>();
       currentHourOps.forEach((op) => {
+        let devNo = op.operation_no;
+        if (usedDevNumbers.has(devNo) || devNo <= 0) {
+          let candidate = 1;
+          while (usedDevNumbers.has(candidate)) candidate++;
+          devNo = candidate;
+        }
+        usedDevNumbers.add(devNo);
+
         futureOps.push({
           ...op,
-          id: `co-${op.operation_no}-${h}-${Date.now()}`,
+          id: generateUniqueOpId(),
+          operation_no: devNo,
           hour: h,
         });
       });
@@ -647,8 +720,12 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                 const style = getCriticalOpPerformanceStyle(prod, target);
                 const dev = prod - target;
 
+                const isDuplicateDevice =
+                  op.operation_no > 0 &&
+                  currentHourOps.filter((o) => o.operation_no === op.operation_no).length > 1;
+
                 return (
-                  <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
+                  <tr key={op.id || `op-row-${index}`} className="hover:bg-slate-50 transition-colors">
                     {/* Device Number Input with Up/Down Move Arrows */}
                     <td className="px-2 py-1.5 border-r border-slate-200 text-center font-black bg-slate-50 min-w-[105px]">
                       <div className="flex items-center justify-center gap-1.5">
@@ -681,18 +758,36 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         </div>
 
                         {/* Device Number Input */}
-                        <input
-                          type="number"
-                          min="1"
-                          value={op.operation_no === 0 ? '' : op.operation_no}
-                          placeholder="No."
-                          onChange={(e) => {
-                            const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-                            handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
-                          }}
-                          className="w-14 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
-                          title="Device Number (type number directly)"
-                        />
+                        <div className="flex flex-col items-center">
+                          <input
+                            type="number"
+                            min="1"
+                            value={op.operation_no === 0 ? '' : op.operation_no}
+                            placeholder="No."
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                              handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
+                            }}
+                            className={`w-14 px-1.5 py-1.5 text-center font-black rounded text-xs outline-none transition shadow-2xs ${
+                              isDuplicateDevice
+                                ? 'bg-rose-50 border-2 border-rose-500 text-rose-800 focus:ring-2 focus:ring-rose-500'
+                                : 'bg-white border border-slate-300 text-slate-900 focus:ring-2 focus:ring-cyan-500'
+                            }`}
+                            title={
+                              isDuplicateDevice
+                                ? `⚠️ Duplicate Device #${op.operation_no}! Each device must have a unique number in this hour.`
+                                : 'Device Number (type number directly)'
+                            }
+                          />
+                          {isDuplicateDevice && (
+                            <span
+                              className="text-[9px] font-black text-rose-600 leading-none mt-0.5"
+                              title={`Duplicate Device #${op.operation_no}`}
+                            >
+                              ⚠️ Dup #{op.operation_no}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
 
