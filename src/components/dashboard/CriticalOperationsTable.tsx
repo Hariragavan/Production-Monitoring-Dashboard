@@ -1,6 +1,6 @@
 import React from 'react';
 import type { CriticalOperation } from '../../types';
-import { Activity, Pin } from 'lucide-react';
+import { Activity } from 'lucide-react';
 
 interface CriticalOperationsTableProps {
   operations?: CriticalOperation[];
@@ -10,8 +10,7 @@ interface GroupedRow {
   operationNo: number;
   operationName: string;
   workerName: string;
-  pinned?: boolean;
-  pinnedOrder?: number;
+  rowOrder?: number;
   hours: Record<number, { workerName: string; production: number; target: number }>;
 }
 
@@ -151,9 +150,8 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
     }
 
     if (targetRow) {
-      if (op.pinned) targetRow.pinned = true;
-      if (op.pinned_order !== undefined && targetRow.pinnedOrder === undefined) {
-        targetRow.pinnedOrder = op.pinned_order;
+      if (op.row_order !== undefined && targetRow.rowOrder === undefined) {
+        targetRow.rowOrder = op.row_order;
       }
       targetRow.hours[op.hour] = {
         workerName: op.worker_name,
@@ -168,8 +166,7 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
         operationNo: op.operation_no,
         operationName: op.operation_name,
         workerName: op.worker_name || '',
-        pinned: op.pinned,
-        pinnedOrder: op.pinned_order,
+        rowOrder: op.row_order,
         hours: {
           [op.hour]: {
             workerName: op.worker_name,
@@ -190,29 +187,16 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
     if (aIsChecker && !bIsChecker) return 1;
     if (!aIsChecker && bIsChecker) return -1;
     if (aIsChecker && bIsChecker) {
-      const aOrder = a.pinnedOrder ?? a.operationNo;
-      const bOrder = b.pinnedOrder ?? b.operationNo;
-      return aOrder - bOrder;
+      return (a.rowOrder ?? a.operationNo) - (b.rowOrder ?? b.operationNo);
     }
 
-    // 2. Pinned items stay in their assigned place whatever device no
-    const aPinned = a.pinned !== false;
-    const bPinned = b.pinned !== false;
-    const aOrder = a.pinnedOrder !== undefined ? a.pinnedOrder : (aPinned ? a.operationNo : undefined);
-    const bOrder = b.pinnedOrder !== undefined ? b.pinnedOrder : (bPinned ? b.operationNo : undefined);
-
-    if (aOrder !== undefined && bOrder !== undefined) {
-      if (aOrder !== bOrder) return aOrder - bOrder;
-    } else if (aOrder !== undefined) {
-      if (aOrder !== b.operationNo) return aOrder - b.operationNo;
-    } else if (bOrder !== undefined) {
-      if (a.operationNo !== bOrder) return a.operationNo - bOrder;
-    }
+    // 2. Order by custom rowOrder (set via Up/Down arrows). NO device no ordering!
+    const aOrder = a.rowOrder !== undefined ? a.rowOrder : 999;
+    const bOrder = b.rowOrder !== undefined ? b.rowOrder : 999;
+    if (aOrder !== bOrder) return aOrder - bOrder;
 
     // 3. Fallback
-    if (a.operationNo !== b.operationNo) return a.operationNo - b.operationNo;
-    if (a.operationName !== b.operationName) return a.operationName.localeCompare(b.operationName);
-    return a.workerName.localeCompare(b.workerName);
+    return a.operationName.localeCompare(b.operationName);
   });
 
   return (
@@ -294,16 +278,9 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
                       rowIndex % 2 === 0 ? 'bg-white' : 'bg-slate-50/70'
                     } hover:bg-cyan-50/40 transition-colors`}
                   >
-                    {/* Row Device No with Pin indicator */}
+                    {/* Row Device No */}
                     <td className="px-1 py-1 font-bold text-slate-700 bg-slate-100/60 border-r border-slate-200">
-                      <div className="flex items-center justify-center gap-0.5">
-                        <span>{row.operationNo}</span>
-                        {row.pinned && (
-                          <span title="Pinned in this place">
-                            <Pin className="w-2.5 h-2.5 text-cyan-700 fill-cyan-700 rotate-45 shrink-0" />
-                          </span>
-                        )}
-                      </div>
+                      {row.operationNo}
                     </td>
 
                     {/* Operation Name (Compact) & Worker Name */}

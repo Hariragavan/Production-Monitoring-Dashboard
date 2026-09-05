@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { CriticalOperation } from '../../types';
-import { Plus, Trash2, Users, Copy, CheckCircle2, Clock, X, Check, Pin } from 'lucide-react';
+import { Plus, Trash2, Users, Copy, CheckCircle2, Clock, X, Check, ChevronUp, ChevronDown } from 'lucide-react';
 import {
   getAvailableWorkers,
   syncWorkersFromSupabase,
@@ -93,8 +93,8 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   const isChecker = (name?: string) => (name || '').trim().toUpperCase().includes('CHECKER');
 
   // Filter operations for current active hour
-  // Rule 1: CHECKER is always in the last row whatever device no!
-  // Rule 2: Pinned operations stay in their pinned place whatever device no!
+  // Rule 1: CHECKER is ALWAYS in the last row, whatever device no!
+  // Rule 2: Ordered by custom table row_order (Up/Down arrows) - NO order by device no!
   const currentHourOps = operations
     .filter((op) => op.hour === activeHour)
     .sort((a, b) => {
@@ -104,28 +104,16 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       if (aChecker && !bChecker) return 1;
       if (!aChecker && bChecker) return -1;
       if (aChecker && bChecker) {
-        const aOrder = a.pinned_order ?? a.operation_no;
-        const bOrder = b.pinned_order ?? b.operation_no;
-        return aOrder - bOrder;
+        return (a.row_order ?? a.operation_no) - (b.row_order ?? b.operation_no);
       }
 
-      // 2. Pinned items stay in their assigned place whatever device no
-      const aPinned = a.pinned !== false;
-      const bPinned = b.pinned !== false;
-      const aOrder = a.pinned_order !== undefined ? a.pinned_order : (aPinned ? a.operation_no : undefined);
-      const bOrder = b.pinned_order !== undefined ? b.pinned_order : (bPinned ? b.operation_no : undefined);
+      // 2. Custom row_order set via Up / Down arrows (device no does NOT sort)
+      const aOrder = a.row_order !== undefined ? a.row_order : a.operation_no;
+      const bOrder = b.row_order !== undefined ? b.row_order : b.operation_no;
+      if (aOrder !== bOrder) return aOrder - bOrder;
 
-      if (aOrder !== undefined && bOrder !== undefined) {
-        if (aOrder !== bOrder) return aOrder - bOrder;
-      } else if (aOrder !== undefined) {
-        if (aOrder !== b.operation_no) return aOrder - b.operation_no;
-      } else if (bOrder !== undefined) {
-        if (a.operation_no !== bOrder) return a.operation_no - bOrder;
-      }
-
-      // 3. Fallback to Device No
-      if (a.operation_no !== b.operation_no) return a.operation_no - b.operation_no;
-      return (a.operation_name || '').localeCompare(b.operation_name || '');
+      // 3. Stable fallback
+      return (a.id || '').localeCompare(b.id || '');
     });
 
   // Compute total output and target for this hour
@@ -133,37 +121,50 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   const hourTotalTarget = currentHourOps.reduce((sum, op) => sum + (Number(op.target) || 0), 0);
   const hourEfficiency = hourTotalTarget > 0 ? Math.round((hourTotalActual / hourTotalTarget) * 100) : 0;
 
-  // Toggle pin for this operation (keeps it in that place whatever device no is typed)
-  const handleTogglePin = (opId: string | undefined) => {
-    const currentOp = operations.find((o) => o.id === opId);
-    if (!currentOp) return;
-
-    const isCurrentlyPinned = currentOp.pinned !== false;
-    const newPinnedState = !isCurrentlyPinned;
-
+  // Move operation row Up or Down in the table
+  const handleMoveOp = (opId: string | undefined, direction: 'up' | 'down') => {
     const currentIndex = currentHourOps.findIndex((o) => o.id === opId);
-    const assignedPlace = currentIndex >= 0 ? currentIndex + 1 : currentOp.operation_no;
+    if (currentIndex < 0) return;
 
-    const updated = operations.map((o) => {
-      // Pin across all hours for this operation so the shift stays in this place
-      if (o.id === opId || (o.operation_name === currentOp.operation_name && o.worker_name === currentOp.worker_name)) {
-        return {
-          ...o,
-          pinned: newPinnedState,
-          pinned_order: newPinnedState ? (o.pinned_order ?? assignedPlace) : undefined,
-        };
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentHourOps.length) return;
+
+    const currentOp = currentHourOps[currentIndex];
+    const targetOp = currentHourOps[targetIndex];
+
+    // Protect CHECKER so it always stays in the last row
+    if (direction === 'down' && isChecker(targetOp.operation_name) && !isChecker(currentOp.operation_name)) {
+      return; // Cannot move below CHECKER
+    }
+    if (direction === 'up' && isChecker(currentOp.operation_name) && !isChecker(targetOp.operation_name)) {
+      return; // Cannot move CHECKER above standard operations
+    }
+
+    // Swap positions in a working copy of currentHourOps
+    const newOrderList = [...currentHourOps];
+    newOrderList[currentIndex] = targetOp;
+    newOrderList[targetIndex] = currentOp;
+
+    // Build mapping for sequential row_order
+    const orderMap = new Map<string, number>();
+    newOrderList.forEach((op, idx) => {
+      orderMap.set(`${op.operation_name}_${op.worker_name || ''}`, idx + 1);
+      if (op.id) orderMap.set(op.id, idx + 1);
+    });
+
+    // Apply new row_order to all hours so shift remains consistent
+    const updated = operations.map((op) => {
+      const key = `${op.operation_name}_${op.worker_name || ''}`;
+      const newOrder = (op.id && orderMap.has(op.id)) ? orderMap.get(op.id) : orderMap.get(key);
+      if (newOrder !== undefined) {
+        return { ...op, row_order: newOrder };
       }
-      return o;
+      return op;
     });
 
     onChange(updated);
-
-    if (newPinnedState) {
-      setOpFeedback(`📌 Pinned in Row #${assignedPlace} (stays in this place whatever Device No is typed)`);
-    } else {
-      setOpFeedback(`✓ Unpinned from fixed place`);
-    }
-    setTimeout(() => setOpFeedback(null), 3000);
+    setOpFeedback(`✓ Moved ${currentOp.operation_name || 'row'} ${direction === 'up' ? '▲ Up' : '▼ Down'}`);
+    setTimeout(() => setOpFeedback(null), 2000);
   };
 
   // Handlers for modifying operations for this specific hour
@@ -260,6 +261,9 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
     const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
 
+    const nonCheckerCount = currentHourOps.filter((o) => !isChecker(o.operation_name)).length;
+    const newRowOrder = isChecker(defaultOp) ? currentHourOps.length + 1 : nonCheckerCount + 1;
+
     const newOp: CriticalOperation = {
       id: `co-${nextDeviceNo}-${activeHour}-${Date.now()}`,
       operation_no: nextDeviceNo,
@@ -271,8 +275,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       target: defaultTarget,
       completed: false,
       status: 'in_progress',
-      pinned: true,
-      pinned_order: nextDeviceNo,
+      row_order: newRowOrder,
     };
 
     onChange([...operations, newOp]);
@@ -646,41 +649,50 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
                 return (
                   <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
-                    {/* Device Number Input with Pin Symbol */}
-                    <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50 min-w-[100px]">
+                    {/* Device Number Input with Up/Down Move Arrows */}
+                    <td className="px-2 py-1.5 border-r border-slate-200 text-center font-black bg-slate-50 min-w-[105px]">
                       <div className="flex items-center justify-center gap-1.5">
+                        {/* Up / Down Move Buttons */}
+                        <div className="flex flex-col gap-0.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={
+                              index === 0 ||
+                              (isChecker(op.operation_name) && index > 0 && !isChecker(currentHourOps[index - 1]?.operation_name))
+                            }
+                            onClick={() => handleMoveOp(op.id, 'up')}
+                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 hover:text-cyan-700 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                            title="Move row up"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              index === currentHourOps.length - 1 ||
+                              (!isChecker(op.operation_name) && currentHourOps[index + 1] && isChecker(currentHourOps[index + 1]?.operation_name))
+                            }
+                            onClick={() => handleMoveOp(op.id, 'down')}
+                            className="p-0.5 rounded hover:bg-slate-200 text-slate-500 hover:text-cyan-700 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
+                            title="Move row down"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                          </button>
+                        </div>
+
+                        {/* Device Number Input */}
                         <input
                           type="number"
                           min="1"
                           value={op.operation_no === 0 ? '' : op.operation_no}
-                          placeholder="1"
+                          placeholder="No."
                           onChange={(e) => {
                             const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
                             handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
                           }}
                           className="w-14 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
-                          title="Type Device Number"
+                          title="Device Number (type number directly)"
                         />
-                        <button
-                          type="button"
-                          onClick={() => handleTogglePin(op.id)}
-                          className={`p-1.5 rounded-md transition-all cursor-pointer ${
-                            op.pinned !== false
-                              ? 'text-cyan-800 bg-cyan-100 hover:bg-cyan-200 border border-cyan-300 shadow-2xs'
-                              : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200/70 border border-transparent'
-                          }`}
-                          title={
-                            op.pinned !== false
-                              ? '📌 Pinned in this place (Click to unpin)'
-                              : 'Click to pin this row in this place'
-                          }
-                        >
-                          <Pin
-                            className={`w-3.5 h-3.5 transition-transform ${
-                              op.pinned !== false ? 'fill-cyan-700 text-cyan-800 rotate-45' : ''
-                            }`}
-                          />
-                        </button>
                       </div>
                     </td>
 
