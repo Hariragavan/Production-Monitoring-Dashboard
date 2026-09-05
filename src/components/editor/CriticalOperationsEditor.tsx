@@ -119,81 +119,25 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
             changed.worker_id = foundWorker.id;
           }
         }
+        if (field === 'worker_id') {
+          const cleanId = String(value).trim().toUpperCase();
+          const cleanDigits = cleanId.replace(/\D/g, '');
+          const foundWorker = availableWorkers.find((w) => {
+            const wId = w.id.trim().toUpperCase();
+            if (wId === cleanId) return true;
+            const wDigits = wId.replace(/\D/g, '');
+            return cleanDigits && wDigits && cleanDigits === wDigits;
+          });
+          if (foundWorker) {
+            changed.worker_name = foundWorker.name;
+            changed.worker_id = foundWorker.id;
+          }
+        }
         return changed;
       }
       return op;
     });
     onChange(updated);
-  };
-
-  // Enforce unique table numbers in activeHour so no two operations ever share the same table number
-  useEffect(() => {
-    const opsInHour = operations.filter((op) => op.hour === activeHour);
-    const seen = new Set<number>();
-    let hasDuplicate = false;
-    for (const op of opsInHour) {
-      if (seen.has(op.operation_no)) {
-        hasDuplicate = true;
-        break;
-      }
-      seen.add(op.operation_no);
-    }
-
-    if (hasDuplicate) {
-      const used = new Set<number>();
-      let changed = false;
-      const fixedOps = operations.map((op) => {
-        if (op.hour !== activeHour) return op;
-        if (!used.has(op.operation_no)) {
-          used.add(op.operation_no);
-          return op;
-        }
-        // Assign next lowest unused table number
-        let nextNo = 1;
-        while (used.has(nextNo)) nextNo++;
-        used.add(nextNo);
-        changed = true;
-        return { ...op, operation_no: nextNo };
-      });
-      if (changed) {
-        onChange(fixedOps);
-      }
-    }
-  }, [activeHour, operations]);
-
-  // Update Table # with automatic swapping: No two operations in this hour can ever have the same table number!
-  const handleUpdateTableNo = (opId: string | undefined, newTableNo: number) => {
-    const currentOp = operations.find((o) => o.id === opId);
-    if (!currentOp) return;
-    const oldTableNo = currentOp.operation_no;
-    if (oldTableNo === newTableNo) return;
-
-    // Check if another operation in this active hour already uses newTableNo
-    const conflictingOp = operations.find(
-      (o) => o.id !== opId && o.hour === activeHour && o.operation_no === newTableNo
-    );
-
-    const updated = operations.map((o) => {
-      if (o.id === opId) {
-        return { ...o, operation_no: newTableNo };
-      }
-      if (conflictingOp && o.id === conflictingOp.id) {
-        // Swap: Give conflicting op the old table number so both operations have unique numbers
-        return { ...o, operation_no: oldTableNo };
-      }
-      return o;
-    });
-
-    onChange(updated);
-
-    if (conflictingOp) {
-      setOpFeedback(
-        `✓ Swapped: Table #${newTableNo} (${currentOp.operation_name || 'Op'}) ⇄ Table #${oldTableNo} (${conflictingOp.operation_name || 'Op'})`
-      );
-    } else {
-      setOpFeedback(`✓ Assigned Table #${newTableNo} to ${currentOp.operation_name || 'Operation'}`);
-    }
-    setTimeout(() => setOpFeedback(null), 3500);
   };
 
   // Add & Save new operation to Supabase & localStorage
@@ -226,31 +170,31 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     }
   };
 
-  // Add new operation for this hour with guaranteed unique Table Number
+  // Add new operation for this hour with typed Device Number
   const handleAddOpForHour = () => {
-    // 1. Collect all table numbers currently used in this active hour
-    const currentHourTableNumbers = new Set(
+    // 1. Collect all device numbers currently used in this active hour
+    const currentHourDeviceNumbers = new Set(
       operations.filter((o) => o.hour === activeHour).map((o) => o.operation_no)
     );
 
-    // 2. Find the lowest unused table number starting from 1 (Guarantees no two operations share table number)
-    let nextTableNo = 1;
-    while (currentHourTableNumbers.has(nextTableNo)) {
-      nextTableNo++;
+    // 2. Find the lowest unused device number starting from 1
+    let nextDeviceNo = 1;
+    while (currentHourDeviceNumbers.has(nextDeviceNo)) {
+      nextDeviceNo++;
     }
 
     // 3. Pre-fill template details if this slot exists in other hours
-    const templateOp = operations.find((o) => o.operation_no === nextTableNo);
-    const defaultWorker = availableWorkers[(nextTableNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
+    const templateOp = operations.find((o) => o.operation_no === nextDeviceNo);
+    const defaultWorker = availableWorkers[(nextDeviceNo - 1) % availableWorkers.length] || { name: 'WORKER', id: '101' };
     const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
-    const defaultOp = templateOp?.operation_name || opPool[(nextTableNo - 1) % opPool.length];
-    const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 40;
+    const defaultOp = templateOp?.operation_name || opPool[(nextDeviceNo - 1) % opPool.length];
+    const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 0;
     const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
     const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
 
     const newOp: CriticalOperation = {
-      id: `co-${nextTableNo}-${activeHour}-${Date.now()}`,
-      operation_no: nextTableNo,
+      id: `co-${nextDeviceNo}-${activeHour}-${Date.now()}`,
+      operation_no: nextDeviceNo,
       operation_name: defaultOp,
       worker_name: defaultWorkerName,
       worker_id: defaultWorkerId,
@@ -262,7 +206,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     };
 
     onChange([...operations, newOp]);
-    setOpFeedback(`✓ Added Operation at Table #${nextTableNo}`);
+    setOpFeedback(`✓ Added Operation for Device #${nextDeviceNo}`);
     setTimeout(() => setOpFeedback(null), 3000);
   };
 
@@ -550,7 +494,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
             title="Create a new operation and save to database"
           >
             <Plus className="w-3.5 h-3.5 text-sky-600" />
-            <span>+ New Operation</span>
+            <span>New Operation</span>
           </button>
 
           {/* Add Operation for this Hour */}
@@ -560,7 +504,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-700 hover:bg-cyan-800 text-white rounded-lg text-xs font-black uppercase tracking-wider shadow-xs transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Operator</span>
+            <span>Add Operator</span>
           </button>
         </div>
       </div>
@@ -590,16 +534,24 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
               onClick={handleAddOpForHour}
               className="px-4 py-2 bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 rounded-lg text-xs font-bold transition cursor-pointer"
             >
-              + Add New Operation
+              Add New Operation
             </button>
           </div>
         </div>
       ) : (
         <div className="overflow-x-auto">
+          <datalist id="worker-id-options">
+            {availableWorkers.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name} ({w.id})
+              </option>
+            ))}
+          </datalist>
+
           <table className="w-full text-left border-collapse border border-slate-300 text-xs">
             <thead>
               <tr className="bg-[#134665] text-white font-bold uppercase tracking-wider">
-                <th className="px-3 py-2.5 border-r border-slate-400/40 text-center min-w-[75px]">Table #</th>
+                <th className="px-3 py-2.5 border-r border-slate-400/40 text-center min-w-[75px]">Device No</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 min-w-[180px]">Operation Name</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 min-w-[160px]">Assigned Worker</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 text-center min-w-[90px]">Worker ID</th>
@@ -616,7 +568,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
             <tbody className="divide-y divide-slate-200 font-medium">
               {currentHourOps.map((op, index) => {
-                const target = Number(op.target) || 40;
+                const target = op.target !== undefined && op.target !== null ? Number(op.target) : 0;
                 const prod = Number(op.production) || 0;
                 const efficiency = target > 0 ? Math.round((prod / target) * 100) : 0;
                 const style = getCriticalOpPerformanceStyle(prod, target);
@@ -624,24 +576,20 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
                 return (
                   <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
-                    {/* Operation Number / Table Number Selector with Unique Swapping */}
+                    {/* Device Number Input (Type device number directly) */}
                     <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50">
-                      <select
-                        value={op.operation_no}
-                        onChange={(e) => handleUpdateTableNo(op.id, Number(e.target.value))}
-                        className="w-16 px-1 py-1 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer shadow-2xs"
-                        title="Workstation Table # (Each operation must have a unique table number)"
-                      >
-                        {Array.from({ length: 25 }, (_, i) => i + 1).map((num) => {
-                          const otherOp = currentHourOps.find((o) => o.id !== op.id && o.operation_no === num);
-                          const isCurrent = op.operation_no === num;
-                          return (
-                            <option key={num} value={num}>
-                              #{num}{isCurrent ? ' (Current)' : otherOp ? ` ⇄ swap ${otherOp.operation_name ? `(${otherOp.operation_name})` : ''}` : ''}
-                            </option>
-                          );
-                        })}
-                      </select>
+                      <input
+                        type="number"
+                        min="1"
+                        value={op.operation_no === 0 ? '' : op.operation_no}
+                        placeholder="1"
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                          handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
+                        }}
+                        className="w-16 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
+                        title="Type Device Number"
+                      />
                     </td>
 
                     {/* Operation Name Dropdown & Add Button */}
@@ -669,7 +617,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                             <option value={op.operation_name}>{op.operation_name}</option>
                           )}
                           <option value="__CREATE_NEW__" className="text-cyan-700 font-bold bg-cyan-50">
-                            ➕ + Create New Operation...
+                            ➕ Create New Operation...
                           </option>
                         </select>
                         <button
@@ -706,13 +654,16 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                       </select>
                     </td>
 
-                    {/* Worker ID (editable/auto-filled) */}
+                    {/* Worker ID (editable/auto-filled from availableWorkers by ID) */}
                     <td className="px-3 py-2.5 border-r border-slate-200 text-center font-mono text-slate-600">
                       <input
                         type="text"
+                        list="worker-id-options"
                         value={op.worker_id || ''}
+                        placeholder="ID..."
                         onChange={(e) => handleUpdateField(op.id, 'worker_id', e.target.value)}
                         className="w-20 px-2 py-1 bg-white border border-slate-300 rounded text-center text-xs font-mono font-bold uppercase focus:ring-2 focus:ring-cyan-500 outline-none"
+                        title="Type Worker ID to auto-fill Operator Name"
                       />
                     </td>
 

@@ -239,7 +239,7 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-black uppercase tracking-wider shadow-xs transition active:scale-95 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Stoppage Incident</span>
+            <span>Add Stoppage Incident</span>
           </button>
         </div>
       </div>
@@ -261,7 +261,7 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
             onClick={handleAddIncident}
             className="px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer mt-1"
           >
-            + Log Stoppage Incident for {activeHour}{getSuffix(activeHour)} Hour
+            Log Stoppage Incident for {activeHour}{getSuffix(activeHour)} Hour
           </button>
         </div>
       ) : (

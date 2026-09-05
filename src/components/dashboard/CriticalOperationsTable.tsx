@@ -198,7 +198,7 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
         <table className="w-full text-center table-fixed border-collapse border border-slate-300 text-[10px] lg:text-[11px]">
           <thead>
             <tr className="bg-[#1b435b] text-white font-bold tracking-wide">
-              <th className="w-[32px] px-1 py-1 border-r border-slate-400/40 font-bold">No.</th>
+              <th className="w-[52px] px-1 py-1 border-r border-slate-400/40 font-bold text-[9px] lg:text-[10px] leading-tight">Device No</th>
               <th className="w-[110px] px-2 py-1 text-left border-r border-slate-400/40 font-bold">
                 Operation
               </th>

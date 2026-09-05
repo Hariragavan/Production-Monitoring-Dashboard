@@ -253,7 +253,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-cyan-700 hover:bg-cyan-800 text-white rounded-md text-xs font-bold transition active:scale-95 cursor-pointer shadow-2xs"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{showAddUnitForm ? 'Close Form' : '+ Create Unit'}</span>
+                <span>{showAddUnitForm ? 'Close Form' : 'Create Unit'}</span>
               </button>
             </div>
 
@@ -626,7 +626,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-700 hover:bg-cyan-800 text-white rounded-md text-xs font-bold uppercase tracking-wider transition active:scale-95 cursor-pointer shadow-2xs"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Supervisor</span>
+            <span>Add Supervisor</span>
           </button>
         </form>
 
