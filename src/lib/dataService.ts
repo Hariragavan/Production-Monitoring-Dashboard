@@ -58,6 +58,33 @@ export function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
+export function sortLanesNumerically(lanes: string[]): string[] {
+  return [...lanes].sort((a, b) => {
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
+function getAlternativeLaneName(lane: string): string {
+  const matchPadded = lane.match(/^Lane\s*0+(\d+)$/i);
+  if (matchPadded) {
+    return `Lane ${matchPadded[1]}`;
+  }
+  const matchUnpadded = lane.match(/^Lane\s*(\d+)$/i);
+  if (matchUnpadded) {
+    const num = parseInt(matchUnpadded[1], 10);
+    return `Lane ${String(num).padStart(2, '0')}`;
+  }
+  return lane;
+}
+
+export function isLaneDeleted(lane: string, unitName: string): boolean {
+  const deleted = getDeletedLanes(unitName);
+  if (deleted.has(lane)) return true;
+  const alt = getAlternativeLaneName(lane);
+  if (deleted.has(alt)) return true;
+  return false;
+}
+
 const DEFAULT_LANES = ['Lane 01', 'Lane 02', 'Lane 03', 'Lane 04'];
 const LANES_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_lanes_';
 const DELETED_LANES_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_deleted_lanes_';
@@ -79,6 +106,7 @@ function addDeletedLane(lane: string, unitName: string) {
   try {
     const deleted = getDeletedLanes(unitName);
     deleted.add(lane);
+    deleted.add(getAlternativeLaneName(lane));
     localStorage.setItem(
       `${DELETED_LANES_STORAGE_KEY_PREFIX}${unitName}`,
       JSON.stringify(Array.from(deleted))
@@ -92,6 +120,7 @@ function removeDeletedLane(lane: string, unitName: string) {
   try {
     const deleted = getDeletedLanes(unitName);
     deleted.delete(lane);
+    deleted.delete(getAlternativeLaneName(lane));
     localStorage.setItem(
       `${DELETED_LANES_STORAGE_KEY_PREFIX}${unitName}`,
       JSON.stringify(Array.from(deleted))
@@ -105,35 +134,38 @@ export function getAvailableLanes(unitName: string = 'Unit 01'): string[] {
   try {
     const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
     const stored = localStorage.getItem(key);
-    const deleted = getDeletedLanes(unitName);
 
-    if (stored) {
+    if (stored !== null) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        const filtered = parsed.filter((l) => !deleted.has(l));
-        if (filtered.length > 0) return filtered;
+      if (Array.isArray(parsed)) {
+        const filtered = parsed.filter((l) => !isLaneDeleted(l, unitName));
+        return sortLanesNumerically(filtered);
       }
     }
-    // Fallback: If Unit 01, check legacy un-scoped key
+
+    // Fallback ONLY for Unit 01 if never initialized
     if (unitName === 'Unit 01') {
       const legacy = localStorage.getItem('sup_tv_dashboard_lanes');
       if (legacy) {
         const parsed = JSON.parse(legacy);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          const filtered = parsed.filter((l) => !deleted.has(l));
+          const filtered = parsed.filter((l) => !isLaneDeleted(l, unitName));
           if (filtered.length > 0) {
             localStorage.setItem(key, JSON.stringify(filtered));
-            return filtered;
+            return sortLanesNumerically(filtered);
           }
         }
       }
+      const fallback = DEFAULT_LANES.filter((l) => !isLaneDeleted(l, unitName));
+      return sortLanesNumerically(fallback);
     }
-    const fallback = DEFAULT_LANES.filter((l) => !deleted.has(l));
-    return fallback;
+
+    // Any other unit (Unit 02, etc.) defaults to empty list unless lanes have been added
+    return [];
   } catch {
     // ignore
   }
-  return DEFAULT_LANES;
+  return unitName === 'Unit 01' ? sortLanesNumerically(DEFAULT_LANES.filter((l) => !isLaneDeleted(l, unitName))) : [];
 }
 
 export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promise<string[]> {
@@ -155,10 +187,11 @@ export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promi
               .eq('unit_id', unitData.id);
 
             if (data && data.length > 0) {
-              const deleted = getDeletedLanes(unitName);
               // Never resurrect lanes the user explicitly deleted!
-              const lanesFromDb = Array.from(
-                new Set(data.map((d: any) => d.lane_name).filter((l: any) => Boolean(l) && !deleted.has(l)))
+              const lanesFromDb = sortLanesNumerically(
+                Array.from(
+                  new Set(data.map((d: any) => d.lane_name).filter((l: any) => Boolean(l) && !isLaneDeleted(l, unitName)))
+                )
               );
 
               if (lanesFromDb.length > 0) {
@@ -196,7 +229,7 @@ export async function addAvailableLane(
   // Remove from deleted list if re-added explicitly by user
   removeDeletedLane(trimmed, unitName);
 
-  const updated = [...current, trimmed];
+  const updated = sortLanesNumerically([...current, trimmed]);
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
 
@@ -243,13 +276,14 @@ export async function deleteAvailableLane(
   unitName: string = 'Unit 01'
 ): Promise<{ success: boolean; lanes: string[]; error?: string }> {
   const current = getAvailableLanes(unitName);
-  if (current.length <= 1) return { success: false, lanes: current, error: 'At least 1 lane is required' };
-  const updated = current.filter((l) => l !== laneToDelete);
+  if (current.length === 0) return { success: false, lanes: current, error: 'No lanes to delete' };
+  const updated = sortLanesNumerically(current.filter((l) => l !== laneToDelete));
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
 
   // Permanently record in deleted lanes so it is NEVER automatically resurrected
   addDeletedLane(laneToDelete, unitName);
+  const altLane = getAlternativeLaneName(laneToDelete);
 
   let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
@@ -261,12 +295,12 @@ export async function deleteAvailableLane(
         .maybeSingle();
 
       if (unitData?.id) {
-        // Delete all production_days for this lane to ensure it does not persist in DB
+        // Delete all production_days for this lane (and alternative format) to ensure it does not persist in DB
         const { error } = await supabase
           .from('production_days')
           .delete()
           .eq('unit_id', unitData.id)
-          .eq('lane_name', laneToDelete);
+          .or(`lane_name.eq.${laneToDelete},lane_name.eq.${altLane}`);
 
         if (error) {
           supabaseError = error.message;
@@ -299,7 +333,7 @@ export async function renameAvailableLane(
     return { success: false, lanes: current, error: `Lane "${trimmedNew}" already exists in ${unitName}` };
   }
 
-  const updated = current.map((l) => (l === trimmedOld ? trimmedNew : l));
+  const updated = sortLanesNumerically(current.map((l) => (l === trimmedOld ? trimmedNew : l)));
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
 
@@ -571,44 +605,34 @@ export function getAvailableWorkers(unitName: string = 'Unit 01'): WorkerItem[] 
     const stored = localStorage.getItem(key);
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-
-    // Fallback: check all other worker keys in localStorage so workers are never lost
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && (k.startsWith(WORKERS_STORAGE_KEY_PREFIX) || k === 'sup_tv_dashboard_workers')) {
-        const item = localStorage.getItem(k);
-        if (item) {
-          const list = JSON.parse(item);
-          if (Array.isArray(list) && list.length > 0) return list;
-        }
-      }
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch {
     // ignore
   }
-  return DEFAULT_WORKERS;
+  // Only Unit 01 gets initial default seed workers if uninitialized
+  if (unitName === 'Unit 01') {
+    return DEFAULT_WORKERS;
+  }
+  // Unit 02 and any other units strictly display their own operators only
+  return [];
 }
 
 export async function syncWorkersFromSupabase(unitName: string = 'Unit 01'): Promise<WorkerItem[]> {
   if (isSupabaseConfigured && supabase) {
     try {
-      // 1. Try querying with unit_name filter
-      let { data, error } = await supabase
+      let query = supabase
         .from('workers')
-        .select('*')
-        .eq('unit_name', unitName)
-        .order('name');
+        .select('*');
 
-      // 2. If no workers registered specifically under this unit, or column doesn't exist, query all registered workers
-      if (error || !data || data.length === 0) {
-        const fallback = await supabase.from('workers').select('*').order('name');
-        if (!fallback.error && fallback.data && fallback.data.length > 0) {
-          data = fallback.data;
-          error = null;
-        }
+      // Strict unit scoping: Unit 01 loads Unit 01 and nulls; Unit 02 loads ONLY Unit 02
+      if (unitName === 'Unit 01') {
+        query = query.or('unit_name.eq.Unit 01,unit_name.is.null');
+      } else {
+        query = query.eq('unit_name', unitName);
       }
+
+      const { data, error } = await query.order('name');
 
       if (!error && data) {
         const mapped: WorkerItem[] = data.map((d: any) => ({
@@ -813,10 +837,14 @@ export async function deleteAvailableWorker(
   let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
     try {
-      const { error } = await supabase
+      let delQuery = supabase
         .from('workers')
         .delete()
         .eq('worker_id', trimmedId);
+      if (unitName) {
+        delQuery = delQuery.eq('unit_name', unitName);
+      }
+      const { error } = await delQuery;
 
       if (error) {
         supabaseError = error.message;
@@ -1136,8 +1164,9 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
 // Save all dashboard data with guaranteed Supabase persistence
 export async function saveDashboardData(data: DashboardData): Promise<{ success: boolean; error?: string; warning?: string }> {
   const date = data.day.production_date;
-  const lane = data.day.lane_name || 'Lane 01';
   const unitName = data.unit?.unit_name || 'Unit 01';
+  const available = getAvailableLanes(unitName);
+  const lane = data.day.lane_name || (available.length > 0 ? available[0] : '');
 
   // Always keep localStorage updated as immediate local backup
   saveLocalData(date, lane, unitName, data);

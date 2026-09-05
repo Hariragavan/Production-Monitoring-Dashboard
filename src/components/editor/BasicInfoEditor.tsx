@@ -21,6 +21,7 @@ import {
   deleteAvailableSupervisor,
   getLaneSupervisor,
   setLaneSupervisor,
+  sortLanesNumerically,
   type WorkerItem,
   type SupervisorItem,
 } from '../../lib/dataService';
@@ -93,6 +94,7 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
       }
     };
     window.addEventListener('production-workers-updated', handleWorkersUpdated);
+    return () => window.removeEventListener('production-workers-updated', handleWorkersUpdated);
   }, [unitName]);
 
   // Listen to supervisors update event
@@ -371,118 +373,124 @@ export const BasicInfoEditor: React.FC<BasicInfoEditorProps> = ({
             Select Active Lane to Configure:
           </label>
           <div className="flex flex-wrap gap-2">
-            {availableLanes.map((lane) => {
-              const isSelected = selectedLane === lane;
-              const isEditing = editingLane === lane;
-              const laneSup = getLaneSupervisor(lane);
+            {availableLanes.length === 0 ? (
+              <div className="w-full p-3 bg-slate-50 rounded-lg border border-dashed border-slate-300 text-center text-xs text-slate-500 font-medium">
+                No production lanes added yet for {unitName}. Enter a lane name below to add one.
+              </div>
+            ) : (
+              sortLanesNumerically(availableLanes).map((lane) => {
+                const isSelected = selectedLane === lane;
+                const isEditing = editingLane === lane;
+                const laneSup = getLaneSupervisor(lane);
 
-              if (isEditing) {
+                if (isEditing) {
+                  return (
+                    <div
+                      key={lane}
+                      className="inline-flex items-center gap-1.5 p-1 bg-white rounded-lg border-2 border-cyan-500 shadow-sm"
+                    >
+                      <input
+                        type="text"
+                        value={renamedLaneInput}
+                        onChange={(e) => setRenamedLaneInput(e.target.value)}
+                        className="w-28 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-cyan-500"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveRenameLane(lane);
+                          if (e.key === 'Escape') setEditingLane(null);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={isRenamingLane}
+                        onClick={() => handleSaveRenameLane(lane)}
+                        className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition cursor-pointer disabled:opacity-50"
+                        title="Save Lane Name"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isRenamingLane}
+                        onClick={() => setEditingLane(null)}
+                        className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded transition cursor-pointer"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     key={lane}
-                    className="inline-flex items-center gap-1.5 p-1 bg-white rounded-lg border-2 border-cyan-500 shadow-sm"
+                    className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold transition ${
+                      isSelected
+                        ? 'bg-[#134665] text-white border-[#0f3852] shadow-sm ring-2 ring-cyan-500/50'
+                        : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
+                    }`}
                   >
-                    <input
-                      type="text"
-                      value={renamedLaneInput}
-                      onChange={(e) => setRenamedLaneInput(e.target.value)}
-                      className="w-28 px-2 py-1 bg-slate-50 border border-slate-300 rounded text-xs font-bold text-slate-900 outline-none focus:ring-1 focus:ring-cyan-500"
-                      autoFocus
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveRenameLane(lane);
-                        if (e.key === 'Escape') setEditingLane(null);
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLaneChange(lane);
+                        onChange({
+                          lane_name: lane,
+                          supervisor_name: laneSup.name,
+                          supervisor_id: laneSup.id,
+                        });
                       }}
-                    />
-                    <button
-                      type="button"
-                      disabled={isRenamingLane}
-                      onClick={() => handleSaveRenameLane(lane)}
-                      className="p-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded transition cursor-pointer disabled:opacity-50"
-                      title="Save Lane Name"
+                      className="flex items-center gap-1.5 cursor-pointer text-left"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRenamingLane}
-                      onClick={() => setEditingLane(null)}
-                      className="p-1 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded transition cursor-pointer"
-                      title="Cancel"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                );
-              }
-
-              return (
-                <div
-                  key={lane}
-                  className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold transition ${
-                    isSelected
-                      ? 'bg-[#134665] text-white border-[#0f3852] shadow-sm ring-2 ring-cyan-500/50'
-                      : 'bg-slate-50 text-slate-700 border-slate-300 hover:bg-slate-100'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onLaneChange(lane);
-                      onChange({
-                        lane_name: lane,
-                        supervisor_name: laneSup.name,
-                        supervisor_id: laneSup.id,
-                      });
-                    }}
-                    className="flex items-center gap-1.5 cursor-pointer text-left"
-                  >
-                    {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}
-                    <div>
-                      <span className="block font-black">{lane}</span>
-                      <span className={`text-[10px] block ${isSelected ? 'text-cyan-200' : 'text-slate-400'}`}>
-                        {laneSup.name} ({laneSup.id})
-                      </span>
-                    </div>
-                  </button>
-
-                  <div className="flex items-center gap-0.5 ml-1 border-l border-slate-300/40 pl-1">
-                    {/* Rename Lane button */}
-                    <button
-                      type="button"
-                      onClick={() => handleStartRenameLane(lane)}
-                      title={`Rename ${lane}`}
-                      className={`p-1 rounded transition cursor-pointer ${
-                        isSelected
-                          ? 'text-cyan-200 hover:text-white hover:bg-white/10'
-                          : 'text-slate-400 hover:text-cyan-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      <Pencil className="w-3 h-3" />
+                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-300 flex-shrink-0" />}
+                      <div>
+                        <span className="block font-black">{lane}</span>
+                        <span className={`text-[10px] block ${isSelected ? 'text-cyan-200' : 'text-slate-400'}`}>
+                          {laneSup.name} ({laneSup.id})
+                        </span>
+                      </div>
                     </button>
 
-                    {/* Remove lane button for custom lanes */}
-                    {availableLanes.length > 1 && (
+                    <div className="flex items-center gap-0.5 ml-1 border-l border-slate-300/40 pl-1">
+                      {/* Rename Lane button */}
                       <button
                         type="button"
-                        onClick={async () => {
-                          if (window.confirm(`Are you sure you want to delete "${lane}" from ${unitName}? This will permanently remove its metrics from the database.`)) {
-                            await onDeleteLane(lane);
-                          }
-                        }}
-                        title={`Remove ${lane}`}
+                        onClick={() => handleStartRenameLane(lane)}
+                        title={`Rename ${lane}`}
                         className={`p-1 rounded transition cursor-pointer ${
                           isSelected
-                            ? 'text-rose-300 hover:text-rose-100 hover:bg-rose-500/20'
-                            : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                            ? 'text-cyan-200 hover:text-white hover:bg-white/10'
+                            : 'text-slate-400 hover:text-cyan-700 hover:bg-slate-200'
                         }`}
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Pencil className="w-3 h-3" />
                       </button>
-                    )}
+
+                      {/* Remove lane button */}
+                      {availableLanes.length >= 1 && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (window.confirm(`Are you sure you want to delete "${lane}" from ${unitName}? This will permanently remove its metrics from the database.`)) {
+                              await onDeleteLane(lane);
+                            }
+                          }}
+                          title={`Remove ${lane}`}
+                          className={`p-1 rounded transition cursor-pointer ${
+                            isSelected
+                              ? 'text-rose-300 hover:text-rose-100 hover:bg-rose-500/20'
+                              : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                          }`}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 

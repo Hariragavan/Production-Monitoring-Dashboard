@@ -12,6 +12,7 @@ import {
   getAvailableUnits,
   syncLanesFromSupabase,
   syncUnitsFromSupabase,
+  sortLanesNumerically,
   getTodayDateString,
 } from '../lib/dataService';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -27,11 +28,11 @@ export const DashboardPage: React.FC = () => {
   const [selectedUnit, setSelectedUnit] = useState<string>('Unit 01');
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>(() => {
-    const lanes = getAvailableLanes('Unit 01');
+    const lanes = sortLanesNumerically(getAvailableLanes('Unit 01'));
     return lanes[0] || '';
   });
   const [selectedHour] = useState<number>(4); // Default to current 4th hour
-  const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
+  const [availableLanes, setAvailableLanes] = useState<string[]>(() => sortLanesNumerically(getAvailableLanes('Unit 01')));
   const [data, setData] = useState<DashboardData>(INITIAL_DEMO_DATA);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'connected' | 'offline'>('idle');
@@ -45,7 +46,7 @@ export const DashboardPage: React.FC = () => {
   // Sync available lanes for selectedUnit and units from database across all devices
   useEffect(() => {
     syncLanesFromSupabase(selectedUnit).then((lanes) => {
-      if (lanes && lanes.length > 0) setAvailableLanes(lanes);
+      if (Array.isArray(lanes)) setAvailableLanes(sortLanesNumerically(lanes));
     });
     syncUnitsFromSupabase().then((units) => {
       if (units && units.length > 0) setAvailableUnits(units);
@@ -55,15 +56,16 @@ export const DashboardPage: React.FC = () => {
   // Unit change handler ensuring lanes are switched to the unit
   const handleUnitChange = (newUnit: string) => {
     setSelectedUnit(newUnit);
-    const lanes = getAvailableLanes(newUnit);
+    const lanes = sortLanesNumerically(getAvailableLanes(newUnit));
     setAvailableLanes(lanes);
     const nextLane = lanes.includes(selectedLane) ? selectedLane : (lanes[0] || '');
     setSelectedLane(nextLane);
     syncLanesFromSupabase(newUnit).then((synced) => {
-      if (synced && synced.length > 0) {
-        setAvailableLanes(synced);
-        if (!synced.includes(nextLane)) {
-          setSelectedLane(synced[0]);
+      if (Array.isArray(synced)) {
+        const sorted = sortLanesNumerically(synced);
+        setAvailableLanes(sorted);
+        if (!sorted.includes(nextLane)) {
+          setSelectedLane(sorted[0] || '');
         }
       }
     });

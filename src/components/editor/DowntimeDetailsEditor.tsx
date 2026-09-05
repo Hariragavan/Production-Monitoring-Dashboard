@@ -36,12 +36,12 @@ export const DowntimeDetailsEditor: React.FC<DowntimeDetailsEditorProps> = ({
   useEffect(() => {
     setAvailableWorkers(getAvailableWorkers(unitName));
     syncWorkersFromSupabase(unitName).then((synced) => {
-      if (synced && synced.length > 0) {
+      if (Array.isArray(synced)) {
         setAvailableWorkers(synced);
       }
     });
     const handleWorkersUpdated = (e: any) => {
-      if (e.detail?.workers && e.detail.workers.length > 0) {
+      if (e.detail?.workers && (!e.detail?.unitName || e.detail?.unitName === unitName)) {
         setAvailableWorkers(e.detail.workers);
       }
     };

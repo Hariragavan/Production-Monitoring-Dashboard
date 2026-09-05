@@ -284,10 +284,10 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
             </div>
           </div>
 
-          {/* Operation / Skill */}
+          {/* Grade */}
           <div>
             <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 mb-1">
-              Operation / Skill (Optional)
+              Grade (Optional)
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none text-slate-400">
@@ -297,7 +297,7 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
                 type="text"
                 value={newWorkerRole}
                 onChange={(e) => setNewWorkerRole(e.target.value)}
-                placeholder="e.g. Shoulder Attach / Hemming"
+                placeholder="e.g. Grade A / Grade B / Skilled"
                 className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium text-slate-900 outline-none focus:ring-2 focus:ring-cyan-500"
               />
             </div>
@@ -360,7 +360,7 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, ID, or skill..."
+              placeholder="Search by name, ID, or grade..."
               className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-cyan-500"
             />
           </div>
@@ -386,7 +386,7 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
                   <th className="px-3 py-2.5 w-12 text-center">#</th>
                   <th className="px-3 py-2.5">Operator Name</th>
                   <th className="px-3 py-2.5">Employee ID</th>
-                  <th className="px-3 py-2.5">Role / Skill</th>
+                  <th className="px-3 py-2.5">Grade</th>
                   <th className="px-3 py-2.5">Department</th>
                   <th className="px-3 py-2.5 text-right w-36">Actions</th>
                 </tr>
@@ -424,7 +424,7 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
                             value={editRole}
                             onChange={(e) => setEditRole(e.target.value)}
                             className="w-full px-2 py-1 bg-white border border-cyan-500 rounded text-xs font-medium text-slate-900 outline-none shadow-inner"
-                            placeholder="Role / Skill"
+                            placeholder="Grade"
                           />
                         </td>
                         <td className="px-3 py-2">
@@ -480,7 +480,7 @@ export const WorkersEditor: React.FC<WorkersEditorProps> = ({ unitName = 'Unit 0
                         </span>
                       </td>
                       <td className="px-3 py-2.5 text-slate-600 font-medium">
-                        {w.role || <span className="text-slate-400 italic">General Operator</span>}
+                        {w.role || <span className="text-slate-400 italic">-</span>}
                       </td>
                       <td className="px-3 py-2.5 text-slate-600 font-medium">
                         {w.department || <span className="text-slate-400 italic">Production Floor</span>}

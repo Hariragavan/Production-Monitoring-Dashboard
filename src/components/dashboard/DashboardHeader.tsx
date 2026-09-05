@@ -10,6 +10,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { FullscreenButton } from '../common/FullscreenButton';
+import { sortLanesNumerically } from '../../lib/dataService';
 
 interface DashboardHeaderProps {
   unitName?: string;
@@ -174,7 +175,7 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
             onChange={(e) => onLaneChange(e.target.value)}
             className="bg-slate-900 text-cyan-300 font-black text-xs rounded px-1.5 py-0.5 border border-cyan-500/40 focus:outline-none focus:ring-1 focus:ring-cyan-400 cursor-pointer"
           >
-            {availableLanes.map((lane) => (
+            {sortLanesNumerically(availableLanes).map((lane) => (
               <option key={lane} value={lane} className="bg-slate-900 text-white font-bold">
                 {lane}
               </option>

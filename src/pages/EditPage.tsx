@@ -9,6 +9,7 @@ import {
   deleteAvailableLane,
   renameAvailableLane,
   syncLanesFromSupabase,
+  sortLanesNumerically,
   getAvailableUnits,
   addAvailableUnit,
   deleteAvailableUnit,
@@ -86,7 +87,7 @@ export const EditPage: React.FC = () => {
   // Sync lanes, units, and workers for selectedUnit from Supabase across all devices
   useEffect(() => {
     syncLanesFromSupabase(selectedUnit).then((lanes) => {
-      if (lanes && lanes.length > 0) setAvailableLanes(lanes);
+      if (Array.isArray(lanes)) setAvailableLanes(sortLanesNumerically(lanes));
     });
     syncUnitsFromSupabase().then((units) => {
       if (units && units.length > 0) setAvailableUnits(units);
@@ -109,7 +110,7 @@ export const EditPage: React.FC = () => {
   useEffect(() => {
     const handleLanesUpdated = (e: any) => {
       if (e.detail?.lanes && (!e.detail?.unitName || e.detail?.unitName === selectedUnit)) {
-        setAvailableLanes(e.detail.lanes);
+        setAvailableLanes(sortLanesNumerically(e.detail.lanes));
       }
     };
     window.addEventListener('production-lanes-updated', handleLanesUpdated);
@@ -119,15 +120,16 @@ export const EditPage: React.FC = () => {
   // Unit switch handler ensuring unit-scoped lanes & workers are loaded
   const handleUnitChange = (newUnit: string) => {
     setSelectedUnit(newUnit);
-    const lanesForUnit = getAvailableLanes(newUnit);
+    const lanesForUnit = sortLanesNumerically(getAvailableLanes(newUnit));
     setAvailableLanes(lanesForUnit);
     const nextLane = lanesForUnit.includes(selectedLane) ? selectedLane : (lanesForUnit[0] || '');
     setSelectedLane(nextLane);
     syncLanesFromSupabase(newUnit).then((lanes) => {
-      if (lanes && lanes.length > 0) {
-        setAvailableLanes(lanes);
-        if (!lanes.includes(nextLane)) {
-          setSelectedLane(lanes[0]);
+      if (Array.isArray(lanes)) {
+        const sorted = sortLanesNumerically(lanes);
+        setAvailableLanes(sorted);
+        if (!sorted.includes(nextLane)) {
+          setSelectedLane(sorted[0] || '');
         }
       }
     });
@@ -147,7 +149,8 @@ export const EditPage: React.FC = () => {
 
   const handleAddLane = async (newLane: string) => {
     const result = await addAvailableLane(newLane, selectedUnit);
-    setAvailableLanes(result.lanes);
+    const sorted = sortLanesNumerically(result.lanes);
+    setAvailableLanes(sorted);
     setSelectedLane(newLane);
     if (!result.success && result.error) {
       setSaveMessage(`Notice: Added locally, database returned: ${result.error}`);
@@ -164,9 +167,10 @@ export const EditPage: React.FC = () => {
 
   const handleDeleteLane = async (laneToDelete: string) => {
     const result = await deleteAvailableLane(laneToDelete, selectedUnit);
-    setAvailableLanes(result.lanes);
-    if (selectedLane === laneToDelete && result.lanes.length > 0) {
-      setSelectedLane(result.lanes[0]);
+    const sorted = sortLanesNumerically(result.lanes);
+    setAvailableLanes(sorted);
+    if (selectedLane === laneToDelete) {
+      setSelectedLane(sorted[0] || '');
     }
     if (!result.success && result.error) {
       setSaveMessage(`Notice: Removed locally, database returned: ${result.error}`);
@@ -433,7 +437,10 @@ export const EditPage: React.FC = () => {
                 <span>Lane:</span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
-                {availableLanes.map((lane) => {
+                {availableLanes.length === 0 ? (
+                  <span className="text-xs text-slate-500 italic py-1">No lanes added yet</span>
+                ) : (
+                  sortLanesNumerically(availableLanes).map((lane) => {
                   const isSelected = selectedLane === lane;
                   const laneSup = getLaneSupervisor(lane);
 
@@ -463,8 +470,9 @@ export const EditPage: React.FC = () => {
                       <span>{lane}</span>
                     </button>
                   );
-                })}
-              </div>
+                })
+              )}
+            </div>
             </div>
 
             {/* 2. Center: Dedicated Date Selection Controls (Excludes Sunday) */}
