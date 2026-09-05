@@ -462,11 +462,17 @@ export function deleteAvailableUnit(unitToDelete: string): string[] {
 const OPERATIONS_STORAGE_KEY = 'sup_tv_dashboard_operations';
 
 export const DEFAULT_OPERATIONS: string[] = [
-  'SHOULDER TOP STITCH',
-  'BOTTOM RIB ATTACH',
+  'SHOULDER ATTACH',
+  'NECK INOUT',
+  'NECK INOUT SERGING',
+  'SLEEVE PANEL READY',
   'SLEEVE ATTACH',
   'SIDE SEAM',
-  'SHOULDER ATTACH',
+  'NECK TAPE TOP STITCH',
+  'SLEEVE PIN TAKING',
+  'BOTTOM HEMMING',
+  'SHOULDER TOP STITCH',
+  'BOTTOM RIB ATTACH',
   'BOTTOM RIB TOP STITCH',
   'SLEEVE TOP STITCH',
   'NECK TOP STITCH',
@@ -554,23 +560,30 @@ export interface WorkerItem {
   unit_name?: string;
 }
 
-// Clean slate: no demo workers
-const DEFAULT_WORKERS: WorkerItem[] = [];
+// Unit 01 Registered Operators
+const DEFAULT_WORKERS: WorkerItem[] = [
+  { id: '10363', name: 'SUNITA LAGURI', role: 'O/L B', department: 'SHOULDER ATTACH', unit_name: 'Unit 01' },
+  { id: '4962', name: 'KANAGARAJ M', role: 'SNLS B', department: 'NECK INOUT', unit_name: 'Unit 01' },
+  { id: '60661', name: 'GOMATHI M', role: 'O/L C', department: 'NECK INOUT SERGING', unit_name: 'Unit 01' },
+  { id: '10466', name: 'SHANTINAYAY', role: 'S/N C', department: 'SLEEVE PANEL READY', unit_name: 'Unit 01' },
+  { id: '60976', name: 'VISHAL', role: 'SNLS A', department: 'SLEEVE PANEL READY', unit_name: 'Unit 01' },
+  { id: '10444', name: 'NAZMIN BEGUM', role: 'O/L C', department: 'SLEEVE ATTACH', unit_name: 'Unit 01' },
+  { id: '3671', name: 'MYTHELY', role: 'A', department: 'SLEEVE ATTACH', unit_name: 'Unit 01' },
+  { id: '10397', name: 'AARTHI V', role: 'O/L B', department: 'SIDE SEAM', unit_name: 'Unit 01' },
+  { id: '60580', name: 'PANKAJ KUMAR', role: 'SNLS B', department: 'SIDE SEAM', unit_name: 'Unit 01' },
+  { id: '10291', name: 'PUSPA MAHTO', role: 'O/L C', department: 'SIDE SEAM', unit_name: 'Unit 01' },
+  { id: '10273', name: 'SEEMA', role: 'SNLS C', department: 'NECK TAPE TOP STITCH', unit_name: 'Unit 01' },
+  { id: '60665', name: 'NIROJ BAG', role: 'SNLS B', department: 'SLEEVE PIN TAKING', unit_name: 'Unit 01' },
+  { id: '61011', name: 'RAMPRAVESH KUMAR', role: 'MULTI TAILOR A', department: 'BOTTOM HEMMING', unit_name: 'Unit 01' },
+];
 const WORKERS_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_workers_';
 
-// One-time initialization to clear old demo cache in user's browser
+// One-time initialization to seed user's browser with Unit 01 operators
 if (typeof window !== 'undefined') {
   try {
-    if (!localStorage.getItem('sup_tv_dashboard_demo_cleared_v2')) {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && (key.startsWith(LOCAL_STORAGE_KEY_PREFIX) || key === 'sup_tv_dashboard_workers')) {
-          keysToRemove.push(key);
-        }
-      }
-      keysToRemove.forEach((k) => localStorage.removeItem(k));
-      localStorage.setItem('sup_tv_dashboard_demo_cleared_v2', 'true');
+    if (!localStorage.getItem('sup_tv_dashboard_unit1_workers_v3')) {
+      localStorage.setItem(`${WORKERS_STORAGE_KEY_PREFIX}Unit 01`, JSON.stringify(DEFAULT_WORKERS));
+      localStorage.setItem('sup_tv_dashboard_unit1_workers_v3', 'true');
     }
   } catch {
     // ignore
