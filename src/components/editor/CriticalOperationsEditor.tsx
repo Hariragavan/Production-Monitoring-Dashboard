@@ -31,6 +31,13 @@ const DEFAULT_OP_SEQUENCE = [
   'CHECKER',
 ];
 
+const generateOpId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `op_${crypto.randomUUID()}`;
+  }
+  return `op_${Date.now()}_${Math.random().toString(36).slice(2, 10)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
 export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> = ({
   operations,
   onChange,
@@ -43,8 +50,37 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   const [availableOperations, setAvailableOperations] = useState<string[]>(getAvailableOperations);
   const [showNewOpModal, setShowNewOpModal] = useState<boolean>(false);
   const [newOpInput, setNewOpInput] = useState<string>('');
-  const [targetOpIdForNew, setTargetOpIdForNew] = useState<string | null>(null);
+  const [targetOpForNew, setTargetOpForNew] = useState<CriticalOperation | null>(null);
   const [isSavingOp, setIsSavingOp] = useState<boolean>(false);
+
+  // Ensure every operation has a strictly unique ID at all times
+  useEffect(() => {
+    if (!operations || operations.length === 0) return;
+
+    const seenIds = new Set<string>();
+    let needsFix = false;
+
+    for (const op of operations) {
+      if (!op.id || seenIds.has(op.id)) {
+        needsFix = true;
+        break;
+      }
+      seenIds.add(op.id);
+    }
+
+    if (needsFix) {
+      const fixedIds = new Set<string>();
+      const sanitized = operations.map((op) => {
+        let uniqueId = op.id;
+        if (!uniqueId || fixedIds.has(uniqueId)) {
+          uniqueId = generateOpId();
+        }
+        fixedIds.add(uniqueId);
+        return { ...op, id: uniqueId };
+      });
+      onChange(sanitized);
+    }
+  }, [operations, onChange]);
 
   useEffect(() => {
     // 1. Sync Workers
@@ -92,42 +128,6 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   // Helper: operation is CHECKER
   const isChecker = (name?: string) => (name || '').trim().toUpperCase().includes('CHECKER');
 
-  // Globally unique ID generator - NEVER depends on operation_no!
-  const generateUniqueOpId = (): string => {
-    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-      return `co_${crypto.randomUUID()}`;
-    }
-    return `co_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${Math.random().toString(36).substring(2, 9)}`;
-  };
-
-  // Self-heal: ensure every operation has a strictly unique ID so no two rows ever share an ID or sync inputs
-  useEffect(() => {
-    if (!operations || operations.length === 0) return;
-    const seen = new Set<string>();
-    let needsFix = false;
-
-    for (const op of operations) {
-      if (!op.id || seen.has(op.id)) {
-        needsFix = true;
-        break;
-      }
-      seen.add(op.id);
-    }
-
-    if (needsFix) {
-      const uniqueIds = new Set<string>();
-      const fixed = operations.map((op) => {
-        let opId = op.id;
-        if (!opId || uniqueIds.has(opId)) {
-          opId = generateUniqueOpId();
-        }
-        uniqueIds.add(opId);
-        return { ...op, id: opId };
-      });
-      onChange(fixed);
-    }
-  }, [operations, onChange]);
-
   // Filter operations for current active hour
   // Rule 1: CHECKER is ALWAYS in the last row, whatever device no!
   // Rule 2: Ordered by custom table row_order (Up/Down arrows) - NO order by device no!
@@ -158,28 +158,34 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   const hourEfficiency = hourTotalTarget > 0 ? Math.round((hourTotalActual / hourTotalTarget) * 100) : 0;
 
   // Move operation row Up or Down in the table
-  const handleMoveOp = (opId: string | undefined, direction: 'up' | 'down') => {
-    if (!opId) return;
-    const currentIndex = currentHourOps.findIndex((o) => o.id === opId);
+  const handleMoveOp = (target: CriticalOperation | string | undefined, direction: 'up' | 'down') => {
+    const targetId = typeof target === 'string' ? target : target?.id;
+    const targetObj = typeof target === 'object' ? target : null;
+
+    const currentIndex = currentHourOps.findIndex((o) => {
+      if (targetObj && o === targetObj) return true;
+      if (targetId && o.id === targetId) return true;
+      return false;
+    });
     if (currentIndex < 0) return;
 
     const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= currentHourOps.length) return;
 
     const currentOp = currentHourOps[currentIndex];
-    const targetOp = currentHourOps[targetIndex];
+    const nextOp = currentHourOps[targetIndex];
 
     // Protect CHECKER so it always stays in the last row
-    if (direction === 'down' && isChecker(targetOp.operation_name) && !isChecker(currentOp.operation_name)) {
+    if (direction === 'down' && isChecker(nextOp.operation_name) && !isChecker(currentOp.operation_name)) {
       return; // Cannot move below CHECKER
     }
-    if (direction === 'up' && isChecker(currentOp.operation_name) && !isChecker(targetOp.operation_name)) {
+    if (direction === 'up' && isChecker(currentOp.operation_name) && !isChecker(nextOp.operation_name)) {
       return; // Cannot move CHECKER above standard operations
     }
 
     // Swap positions in a working copy of currentHourOps
     const newOrderList = [...currentHourOps];
-    newOrderList[currentIndex] = targetOp;
+    newOrderList[currentIndex] = nextOp;
     newOrderList[targetIndex] = currentOp;
 
     // Build mapping for sequential row_order
@@ -205,33 +211,35 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
   };
 
   // Handlers for modifying operations for this specific hour
+  // Strictly targets ONLY the intended row - never updates multiple rows
   const handleUpdateField = (
-    opId: string | undefined,
+    target: CriticalOperation | string | undefined,
     field: keyof CriticalOperation,
     value: any
   ) => {
-    if (!opId) return;
-
-    // If changing device number, check if another device in this hour already uses this number
-    if (field === 'operation_no') {
-      const numVal = Number(value) || 0;
-      if (numVal > 0) {
-        const isDuplicate = operations.some(
-          (o) => o.id !== opId && o.hour === activeHour && o.operation_no === numVal
-        );
-        if (isDuplicate) {
-          setOpFeedback(`⚠️ Warning: Device #${numVal} is already in use in this hour! Each device should have a unique number.`);
-          setTimeout(() => setOpFeedback(null), 4000);
-        }
-      }
-    }
+    let hasUpdatedOne = false;
+    const targetId = typeof target === 'string' ? target : target?.id;
+    const targetObj = typeof target === 'object' ? target : null;
 
     const updated = operations.map((op) => {
-      if (op.id === opId) {
+      if (hasUpdatedOne) return op;
+
+      // Must belong to active hour
+      if (op.hour !== activeHour) return op;
+
+      let isMatch = false;
+      if (targetObj && op === targetObj) {
+        isMatch = true;
+      } else if (targetId && op.id === targetId) {
+        isMatch = true;
+      }
+
+      if (isMatch) {
+        hasUpdatedOne = true;
         const changed = { ...op, [field]: value };
         if (field === 'production' || field === 'target') {
-          const prod = field === 'production' ? Number(value) : op.production;
-          const tgt = field === 'target' ? Number(value) : op.target;
+          const prod = field === 'production' ? Number(value) : (op.production || 0);
+          const tgt = field === 'target' ? Number(value) : (op.target || 0);
           changed.completed = prod >= tgt;
           changed.status = prod >= tgt ? 'completed' : 'in_progress';
         }
@@ -274,14 +282,14 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       if (res.success) {
         setAvailableOperations(res.operations);
         // If a specific row triggered the creation, set that row's operation_name to the new op
-        if (targetOpIdForNew) {
-          handleUpdateField(targetOpIdForNew, 'operation_name', trimmed.toUpperCase());
+        if (targetOpForNew) {
+          handleUpdateField(targetOpForNew, 'operation_name', trimmed.toUpperCase());
         }
         setOpFeedback(`✓ Operation "${trimmed.toUpperCase()}" added & saved to database!`);
         setTimeout(() => setOpFeedback(null), 3500);
         setShowNewOpModal(false);
         setNewOpInput('');
-        setTargetOpIdForNew(null);
+        setTargetOpForNew(null);
       } else if (res.error) {
         alert(res.error);
       }
@@ -305,22 +313,27 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       nextDeviceNo++;
     }
 
+    // 3. Pre-fill template details if this slot exists in other hours
+    const templateOp = operations.find((o) => o.operation_no === nextDeviceNo);
     const defaultWorker = availableWorkers[(nextDeviceNo - 1) % availableWorkers.length] || { name: 'WORKER', id: '101' };
     const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
-    const defaultOp = opPool[(nextDeviceNo - 1) % opPool.length];
+    const defaultOp = templateOp?.operation_name || opPool[(nextDeviceNo - 1) % opPool.length];
+    const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 0;
+    const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
+    const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
 
     const nonCheckerCount = currentHourOps.filter((o) => !isChecker(o.operation_name)).length;
     const newRowOrder = isChecker(defaultOp) ? currentHourOps.length + 1 : nonCheckerCount + 1;
 
     const newOp: CriticalOperation = {
-      id: generateUniqueOpId(),
+      id: generateOpId(),
       operation_no: nextDeviceNo,
       operation_name: defaultOp,
-      worker_name: defaultWorker.name,
-      worker_id: defaultWorker.id,
+      worker_name: defaultWorkerName,
+      worker_id: defaultWorkerId,
       hour: activeHour,
       production: 0,
-      target: 0,
+      target: defaultTarget,
       completed: false,
       status: 'in_progress',
       row_order: newRowOrder,
@@ -391,10 +404,29 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     }
   };
 
-  // Delete operation from this hour
-  const handleDeleteOp = (opId: string | undefined) => {
-    if (!opId) return;
-    const updated = operations.filter((op) => op.id !== opId);
+  // Delete operation from this hour strictly
+  const handleDeleteOp = (target: CriticalOperation | string | undefined) => {
+    let deletedOne = false;
+    const targetId = typeof target === 'string' ? target : target?.id;
+    const targetObj = typeof target === 'object' ? target : null;
+
+    const updated = operations.filter((op) => {
+      if (deletedOne) return true;
+      if (op.hour !== activeHour) return true;
+
+      let isMatch = false;
+      if (targetObj && op === targetObj) {
+        isMatch = true;
+      } else if (targetId && op.id === targetId) {
+        isMatch = true;
+      }
+
+      if (isMatch) {
+        deletedOne = true;
+        return false;
+      }
+      return true;
+    });
     onChange(updated);
   };
 
@@ -406,36 +438,22 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     // Remove existing ops for activeHour
     const otherOps = operations.filter((op) => op.hour !== activeHour);
 
-    // Track used device numbers to prevent duplicate device numbers in activeHour
-    const usedDevNumbers = new Set<number>();
-
-    // Clone source ops with activeHour and initial production
-    const clonedOps: CriticalOperation[] = sourceOps.map((op) => {
-      let devNo = op.operation_no;
-      if (usedDevNumbers.has(devNo) || devNo <= 0) {
-        let candidate = 1;
-        while (usedDevNumbers.has(candidate)) candidate++;
-        devNo = candidate;
-      }
-      usedDevNumbers.add(devNo);
-
-      return {
-        ...op,
-        id: generateUniqueOpId(),
-        operation_no: devNo,
-        hour: activeHour,
-        production: op.production,
-        target: op.target,
-        completed: op.production >= op.target,
-      };
-    });
+    // Clone source ops with activeHour and unique IDs
+    const clonedOps: CriticalOperation[] = sourceOps.map((op) => ({
+      ...op,
+      id: generateOpId(),
+      hour: activeHour,
+      production: op.production,
+      target: op.target,
+      completed: op.production >= op.target,
+    }));
 
     onChange([...otherOps, ...clonedOps]);
     setCopyFeedback(`✓ Copied ${clonedOps.length} operators from ${sourceHour}${getSuffix(sourceHour)} Hour!`);
     setTimeout(() => setCopyFeedback(null), 3000);
   };
 
-  // Copy active hour roster to ALL future hours
+  // Copy active hour roster to ALL future hours with unique IDs
   const handleApplyToAllHours = () => {
     if (currentHourOps.length === 0) return;
 
@@ -444,20 +462,10 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
     const futureOps: CriticalOperation[] = [];
     for (let h = activeHour + 1; h <= 10; h++) {
-      const usedDevNumbers = new Set<number>();
       currentHourOps.forEach((op) => {
-        let devNo = op.operation_no;
-        if (usedDevNumbers.has(devNo) || devNo <= 0) {
-          let candidate = 1;
-          while (usedDevNumbers.has(candidate)) candidate++;
-          devNo = candidate;
-        }
-        usedDevNumbers.add(devNo);
-
         futureOps.push({
           ...op,
-          id: generateUniqueOpId(),
-          operation_no: devNo,
+          id: generateOpId(),
           hour: h,
         });
       });
@@ -632,7 +640,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
           <button
             type="button"
             onClick={() => {
-              setTargetOpIdForNew(null);
+              setTargetOpForNew(null);
               setNewOpInput('');
               setShowNewOpModal(true);
             }}
@@ -720,12 +728,8 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                 const style = getCriticalOpPerformanceStyle(prod, target);
                 const dev = prod - target;
 
-                const isDuplicateDevice =
-                  op.operation_no > 0 &&
-                  currentHourOps.filter((o) => o.operation_no === op.operation_no).length > 1;
-
                 return (
-                  <tr key={op.id || `op-row-${index}`} className="hover:bg-slate-50 transition-colors">
+                  <tr key={op.id || `op-row-${activeHour}-${index}`} className="hover:bg-slate-50 transition-colors">
                     {/* Device Number Input with Up/Down Move Arrows */}
                     <td className="px-2 py-1.5 border-r border-slate-200 text-center font-black bg-slate-50 min-w-[105px]">
                       <div className="flex items-center justify-center gap-1.5">
@@ -737,7 +741,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                               index === 0 ||
                               (isChecker(op.operation_name) && index > 0 && !isChecker(currentHourOps[index - 1]?.operation_name))
                             }
-                            onClick={() => handleMoveOp(op.id, 'up')}
+                            onClick={() => handleMoveOp(op, 'up')}
                             className="p-0.5 rounded hover:bg-slate-200 text-slate-500 hover:text-cyan-700 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
                             title="Move row up"
                           >
@@ -749,7 +753,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                               index === currentHourOps.length - 1 ||
                               (!isChecker(op.operation_name) && currentHourOps[index + 1] && isChecker(currentHourOps[index + 1]?.operation_name))
                             }
-                            onClick={() => handleMoveOp(op.id, 'down')}
+                            onClick={() => handleMoveOp(op, 'down')}
                             className="p-0.5 rounded hover:bg-slate-200 text-slate-500 hover:text-cyan-700 disabled:opacity-20 disabled:hover:bg-transparent disabled:hover:text-slate-300 transition-colors cursor-pointer disabled:cursor-not-allowed"
                             title="Move row down"
                           >
@@ -758,36 +762,18 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         </div>
 
                         {/* Device Number Input */}
-                        <div className="flex flex-col items-center">
-                          <input
-                            type="number"
-                            min="1"
-                            value={op.operation_no === 0 ? '' : op.operation_no}
-                            placeholder="No."
-                            onChange={(e) => {
-                              const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-                              handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
-                            }}
-                            className={`w-14 px-1.5 py-1.5 text-center font-black rounded text-xs outline-none transition shadow-2xs ${
-                              isDuplicateDevice
-                                ? 'bg-rose-50 border-2 border-rose-500 text-rose-800 focus:ring-2 focus:ring-rose-500'
-                                : 'bg-white border border-slate-300 text-slate-900 focus:ring-2 focus:ring-cyan-500'
-                            }`}
-                            title={
-                              isDuplicateDevice
-                                ? `⚠️ Duplicate Device #${op.operation_no}! Each device must have a unique number in this hour.`
-                                : 'Device Number (type number directly)'
-                            }
-                          />
-                          {isDuplicateDevice && (
-                            <span
-                              className="text-[9px] font-black text-rose-600 leading-none mt-0.5"
-                              title={`Duplicate Device #${op.operation_no}`}
-                            >
-                              ⚠️ Dup #{op.operation_no}
-                            </span>
-                          )}
-                        </div>
+                        <input
+                          type="number"
+                          min="1"
+                          value={op.operation_no === 0 ? '' : op.operation_no}
+                          placeholder="No."
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                            handleUpdateField(op, 'operation_no', isNaN(val) ? 0 : val);
+                          }}
+                          className="w-14 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
+                          title="Device Number (type number directly)"
+                        />
                       </div>
                     </td>
 
@@ -798,11 +784,11 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                           value={op.operation_name}
                           onChange={(e) => {
                             if (e.target.value === '__CREATE_NEW__') {
-                              setTargetOpIdForNew(op.id || null);
+                              setTargetOpForNew(op);
                               setNewOpInput('');
                               setShowNewOpModal(true);
                             } else {
-                              handleUpdateField(op.id, 'operation_name', e.target.value);
+                              handleUpdateField(op, 'operation_name', e.target.value);
                             }
                           }}
                           className="flex-1 min-w-0 px-2 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer truncate"
@@ -822,7 +808,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         <button
                           type="button"
                           onClick={() => {
-                            setTargetOpIdForNew(op.id || null);
+                            setTargetOpForNew(op);
                             setNewOpInput('');
                             setShowNewOpModal(true);
                           }}
@@ -838,7 +824,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                     <td className="px-3 py-2.5 border-r border-slate-200">
                       <select
                         value={op.worker_name}
-                        onChange={(e) => handleUpdateField(op.id, 'worker_name', e.target.value)}
+                        onChange={(e) => handleUpdateField(op, 'worker_name', e.target.value)}
                         className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-md font-bold text-slate-900 text-xs focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none cursor-pointer"
                       >
                         <option value="" disabled>-- Select Worker / Operator --</option>
@@ -860,7 +846,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         list="worker-id-options"
                         value={op.worker_id || ''}
                         placeholder="ID..."
-                        onChange={(e) => handleUpdateField(op.id, 'worker_id', e.target.value)}
+                        onChange={(e) => handleUpdateField(op, 'worker_id', e.target.value)}
                         className="w-20 px-2 py-1 bg-white border border-slate-300 rounded text-center text-xs font-mono font-bold uppercase focus:ring-2 focus:ring-cyan-500 outline-none"
                         title="Type Worker ID to auto-fill Operator Name"
                       />
@@ -874,7 +860,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         value={op.target === 0 ? '' : op.target}
                         placeholder="0"
                         onChange={(e) =>
-                          handleUpdateField(op.id, 'target', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
+                          handleUpdateField(op, 'target', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
                         }
                         className="w-16 px-2 py-1.5 text-center bg-white border border-cyan-400 rounded-md font-black text-cyan-900 industrial-digits text-xs focus:ring-2 focus:ring-cyan-500 outline-none"
                       />
@@ -888,7 +874,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                         value={op.production === 0 ? '' : op.production}
                         placeholder="0"
                         onChange={(e) =>
-                          handleUpdateField(op.id, 'production', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
+                          handleUpdateField(op, 'production', e.target.value === '' ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0))
                         }
                         className={`w-20 px-2.5 py-1.5 text-center rounded-md font-black text-sm industrial-digits outline-none transition-all ${
                           prod === 0
@@ -920,7 +906,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                     <td className="px-2 py-2.5 text-center">
                       <button
                         type="button"
-                        onClick={() => handleDeleteOp(op.id)}
+                        onClick={() => handleDeleteOp(op)}
                         title={`Remove Operation #${op.operation_no} from ${activeHour}${getSuffix(activeHour)} Hour`}
                         className="p-1 hover:bg-rose-100 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
                       >
@@ -977,7 +963,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                 onClick={() => {
                   setShowNewOpModal(false);
                   setNewOpInput('');
-                  setTargetOpIdForNew(null);
+                  setTargetOpForNew(null);
                 }}
                 className="text-cyan-200 hover:text-white transition cursor-pointer p-1 rounded hover:bg-white/10"
               >
@@ -1012,7 +998,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
                   onClick={() => {
                     setShowNewOpModal(false);
                     setNewOpInput('');
-                    setTargetOpIdForNew(null);
+                    setTargetOpForNew(null);
                   }}
                   className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition cursor-pointer"
                   disabled={isSavingOp}

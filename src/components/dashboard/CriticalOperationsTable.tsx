@@ -122,14 +122,14 @@ export const CriticalOperationsTable: React.FC<CriticalOperationsTableProps> = (
 
       const rowWorkerNorm = (r.workerName || '').trim().toUpperCase();
 
-      // Rule: If both have a worker name, only merge if worker names MATCH!
-      // If names differ, NEVER merge (put into different row)
+      // Rule: If both have a worker name, only merge if worker names AND device numbers MATCH!
+      // If names or devices differ, NEVER merge (put into different row)
       if (workerNameNorm && rowWorkerNorm) {
-        if (workerNameNorm === rowWorkerNorm) {
+        if (workerNameNorm === rowWorkerNorm && r.operationNo === op.operation_no) {
           targetRow = r;
           break;
         }
-        // Different person doing same operation -> must be different row!
+        // Different person or different device doing same operation -> must be different row!
         continue;
       }
 
