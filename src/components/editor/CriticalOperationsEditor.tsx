@@ -126,6 +126,76 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     onChange(updated);
   };
 
+  // Enforce unique table numbers in activeHour so no two operations ever share the same table number
+  useEffect(() => {
+    const opsInHour = operations.filter((op) => op.hour === activeHour);
+    const seen = new Set<number>();
+    let hasDuplicate = false;
+    for (const op of opsInHour) {
+      if (seen.has(op.operation_no)) {
+        hasDuplicate = true;
+        break;
+      }
+      seen.add(op.operation_no);
+    }
+
+    if (hasDuplicate) {
+      const used = new Set<number>();
+      let changed = false;
+      const fixedOps = operations.map((op) => {
+        if (op.hour !== activeHour) return op;
+        if (!used.has(op.operation_no)) {
+          used.add(op.operation_no);
+          return op;
+        }
+        // Assign next lowest unused table number
+        let nextNo = 1;
+        while (used.has(nextNo)) nextNo++;
+        used.add(nextNo);
+        changed = true;
+        return { ...op, operation_no: nextNo };
+      });
+      if (changed) {
+        onChange(fixedOps);
+      }
+    }
+  }, [activeHour, operations]);
+
+  // Update Table # with automatic swapping: No two operations in this hour can ever have the same table number!
+  const handleUpdateTableNo = (opId: string | undefined, newTableNo: number) => {
+    const currentOp = operations.find((o) => o.id === opId);
+    if (!currentOp) return;
+    const oldTableNo = currentOp.operation_no;
+    if (oldTableNo === newTableNo) return;
+
+    // Check if another operation in this active hour already uses newTableNo
+    const conflictingOp = operations.find(
+      (o) => o.id !== opId && o.hour === activeHour && o.operation_no === newTableNo
+    );
+
+    const updated = operations.map((o) => {
+      if (o.id === opId) {
+        return { ...o, operation_no: newTableNo };
+      }
+      if (conflictingOp && o.id === conflictingOp.id) {
+        // Swap: Give conflicting op the old table number so both operations have unique numbers
+        return { ...o, operation_no: oldTableNo };
+      }
+      return o;
+    });
+
+    onChange(updated);
+
+    if (conflictingOp) {
+      setOpFeedback(
+        `✓ Swapped: Table #${newTableNo} (${currentOp.operation_name || 'Op'}) ⇄ Table #${oldTableNo} (${conflictingOp.operation_name || 'Op'})`
+      );
+    } else {
+      setOpFeedback(`✓ Assigned Table #${newTableNo} to ${currentOp.operation_name || 'Operation'}`);
+    }
+    setTimeout(() => setOpFeedback(null), 3500);
+  };
+
   // Add & Save new operation to Supabase & localStorage
   const handleSaveNewOperation = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -156,34 +226,31 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     }
   };
 
-  // Add new operation for this hour (smart slot detection: re-fills missing line slot instead of appending a new row number)
+  // Add new operation for this hour with guaranteed unique Table Number
   const handleAddOpForHour = () => {
-    // 1. Find all operation numbers that exist across the entire shift
-    const allOpNumbers = Array.from(new Set(operations.map((o) => o.operation_no))).sort((a, b) => a - b);
-    const currentHourOpNumbers = new Set(currentHourOps.map((o) => o.operation_no));
+    // 1. Collect all table numbers currently used in this active hour
+    const currentHourTableNumbers = new Set(
+      operations.filter((o) => o.hour === activeHour).map((o) => o.operation_no)
+    );
 
-    // 2. Identify the lowest slot number missing in this active hour
-    const missingSlotNo = allOpNumbers.find((no) => !currentHourOpNumbers.has(no));
-
-    const nextNo =
-      missingSlotNo !== undefined
-        ? missingSlotNo
-        : currentHourOps.length > 0
-          ? Math.max(...currentHourOps.map((o) => o.operation_no)) + 1
-          : 1;
+    // 2. Find the lowest unused table number starting from 1 (Guarantees no two operations share table number)
+    let nextTableNo = 1;
+    while (currentHourTableNumbers.has(nextTableNo)) {
+      nextTableNo++;
+    }
 
     // 3. Pre-fill template details if this slot exists in other hours
-    const templateOp = operations.find((o) => o.operation_no === nextNo);
-    const defaultWorker = availableWorkers[(nextNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
+    const templateOp = operations.find((o) => o.operation_no === nextTableNo);
+    const defaultWorker = availableWorkers[(nextTableNo - 1) % availableWorkers.length] || { name: 'WORKER', id: 'EMP-01' };
     const opPool = availableOperations.length > 0 ? availableOperations : DEFAULT_OP_SEQUENCE;
-    const defaultOp = templateOp?.operation_name || opPool[(nextNo - 1) % opPool.length];
+    const defaultOp = templateOp?.operation_name || opPool[(nextTableNo - 1) % opPool.length];
     const defaultTarget = templateOp?.target !== undefined ? templateOp.target : 40;
     const defaultWorkerName = templateOp?.worker_name || defaultWorker.name;
     const defaultWorkerId = templateOp?.worker_id || defaultWorker.id;
 
     const newOp: CriticalOperation = {
-      id: `co-${nextNo}-${activeHour}-${Date.now()}`,
-      operation_no: nextNo,
+      id: `co-${nextTableNo}-${activeHour}-${Date.now()}`,
+      operation_no: nextTableNo,
       operation_name: defaultOp,
       worker_name: defaultWorkerName,
       worker_id: defaultWorkerId,
@@ -195,10 +262,13 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     };
 
     onChange([...operations, newOp]);
+    setOpFeedback(`✓ Added Operation at Table #${nextTableNo}`);
+    setTimeout(() => setOpFeedback(null), 3000);
   };
 
-  // Reconcile and merge any displaced or high-numbered rows back into their matching base line rows
+  // Reconcile and align rows without merging different workers into the same table
   const handleAutoAlignRows = () => {
+    // Base roster is keyed by BOTH operation_name AND worker_name!
     const baseRoster: { operation_no: number; operation_name: string; worker_name: string }[] = [];
     for (let h = 1; h <= 10; h++) {
       const opsAtHour = operations.filter((o) => o.hour === h).sort((a, b) => a.operation_no - b.operation_no);
@@ -217,27 +287,26 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
     let changedCount = 0;
     const aligned = operations.map((op) => {
-      // If op.operation_no is already a base slot matching this operation name, keep it
+      // If op.operation_no already matches base slot with same operation AND same worker name, keep it
       const exactBase = baseRoster.find((b) => b.operation_no === op.operation_no);
-      if (exactBase && exactBase.operation_name.trim().toUpperCase() === op.operation_name.trim().toUpperCase()) {
+      if (
+        exactBase &&
+        exactBase.operation_name.trim().toUpperCase() === op.operation_name.trim().toUpperCase() &&
+        (!op.worker_name || exactBase.worker_name.trim().toUpperCase() === op.worker_name.trim().toUpperCase())
+      ) {
         return op;
       }
 
-      // Look for a base slot with matching operation_name (and worker if possible) where this hour is vacant
-      let targetSlot = baseRoster.find((b) => {
+      // Look for a base slot with matching operation_name AND matching worker where this hour is vacant
+      const targetSlot = baseRoster.find((b) => {
         if (b.operation_name.trim().toUpperCase() !== op.operation_name.trim().toUpperCase()) return false;
-        if (b.worker_name.trim().toUpperCase() !== op.worker_name.trim().toUpperCase()) return false;
+        // User rule: Only merge if SAME worker name; different worker names must NEVER share table number!
+        if (op.worker_name && b.worker_name && b.worker_name.trim().toUpperCase() !== op.worker_name.trim().toUpperCase()) {
+          return false;
+        }
         const isTaken = operations.some((other) => other.id !== op.id && other.hour === op.hour && other.operation_no === b.operation_no);
         return !isTaken;
       });
-
-      if (!targetSlot) {
-        targetSlot = baseRoster.find((b) => {
-          if (b.operation_name.trim().toUpperCase() !== op.operation_name.trim().toUpperCase()) return false;
-          const isTaken = operations.some((other) => other.id !== op.id && other.hour === op.hour && other.operation_no === b.operation_no);
-          return !isTaken;
-        });
-      }
 
       if (targetSlot && targetSlot.operation_no !== op.operation_no) {
         changedCount++;
@@ -249,10 +318,10 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
     if (changedCount > 0) {
       onChange(aligned);
-      setOpFeedback(`✓ Successfully merged ${changedCount} operation(s) back into their correct row!`);
+      setOpFeedback(`✓ Successfully aligned ${changedCount} operation(s) into their matching tables!`);
       setTimeout(() => setOpFeedback(null), 4000);
     } else {
-      setOpFeedback(`✓ All operations are already properly aligned with their line rows.`);
+      setOpFeedback(`✓ All operations are already properly aligned with their tables.`);
       setTimeout(() => setOpFeedback(null), 3000);
     }
   };
@@ -530,7 +599,7 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
           <table className="w-full text-left border-collapse border border-slate-300 text-xs">
             <thead>
               <tr className="bg-[#134665] text-white font-bold uppercase tracking-wider">
-                <th className="px-3 py-2.5 border-r border-slate-400/40 text-center w-12">#</th>
+                <th className="px-3 py-2.5 border-r border-slate-400/40 text-center min-w-[75px]">Table #</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 min-w-[180px]">Operation Name</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 min-w-[160px]">Assigned Worker</th>
                 <th className="px-3 py-2.5 border-r border-slate-400/40 text-center min-w-[90px]">Worker ID</th>
@@ -555,19 +624,23 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
                 return (
                   <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
-                    {/* Operation Number / Row Slot Selector */}
+                    {/* Operation Number / Table Number Selector with Unique Swapping */}
                     <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50">
                       <select
                         value={op.operation_no}
-                        onChange={(e) => handleUpdateField(op.id, 'operation_no', Number(e.target.value))}
-                        className="w-13 px-1 py-1 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer shadow-2xs"
-                        title="Row / Workstation # on line (change to merge into that row)"
+                        onChange={(e) => handleUpdateTableNo(op.id, Number(e.target.value))}
+                        className="w-16 px-1 py-1 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none cursor-pointer shadow-2xs"
+                        title="Workstation Table # (Each operation must have a unique table number)"
                       >
-                        {Array.from({ length: 25 }, (_, i) => i + 1).map((num) => (
-                          <option key={num} value={num}>
-                            #{num}
-                          </option>
-                        ))}
+                        {Array.from({ length: 25 }, (_, i) => i + 1).map((num) => {
+                          const otherOp = currentHourOps.find((o) => o.id !== op.id && o.operation_no === num);
+                          const isCurrent = op.operation_no === num;
+                          return (
+                            <option key={num} value={num}>
+                              #{num}{isCurrent ? ' (Current)' : otherOp ? ` ⇄ swap ${otherOp.operation_name ? `(${otherOp.operation_name})` : ''}` : ''}
+                            </option>
+                          );
+                        })}
                       </select>
                     </td>
 

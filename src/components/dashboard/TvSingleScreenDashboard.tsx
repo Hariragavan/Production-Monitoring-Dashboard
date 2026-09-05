@@ -105,9 +105,10 @@ export const TvSingleScreenDashboard: React.FC<TvSingleScreenDashboardProps> = (
     pct: number;
   }[] = [];
 
-  const seenOps = new Map<number, typeof opsList[0]>();
+  const seenOps = new Map<string, typeof opsList[0]>();
   criticalOperations.forEach((op) => {
-    if (!seenOps.has(op.operation_no)) {
+    const key = `${op.operation_no}_${(op.worker_name || '').trim().toUpperCase()}_${(op.operation_name || '').trim().toUpperCase()}`;
+    if (!seenOps.has(key)) {
       const item = {
         opNo: op.operation_no,
         name: op.operation_name,
@@ -118,10 +119,10 @@ export const TvSingleScreenDashboard: React.FC<TvSingleScreenDashboardProps> = (
         isMet: op.production >= op.target,
         pct: op.target > 0 ? Math.round((op.production / op.target) * 100) : 0,
       };
-      seenOps.set(op.operation_no, item);
+      seenOps.set(key, item);
       opsList.push(item);
     } else {
-      const existing = seenOps.get(op.operation_no)!;
+      const existing = seenOps.get(key)!;
       existing.prod += op.production;
       existing.target += op.target;
       existing.pct = existing.target > 0 ? Math.round((existing.prod / existing.target) * 100) : 0;
