@@ -26,7 +26,7 @@ export const DashboardPage: React.FC = () => {
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>(() => {
     const lanes = getAvailableLanes('Unit 01');
-    return lanes[0] || 'Lane 01';
+    return lanes[0] || '';
   });
   const [selectedHour] = useState<number>(4); // Default to current 4th hour
   const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
@@ -49,7 +49,7 @@ export const DashboardPage: React.FC = () => {
     setSelectedUnit(newUnit);
     const lanes = getAvailableLanes(newUnit);
     setAvailableLanes(lanes);
-    const nextLane = lanes.includes(selectedLane) ? selectedLane : (lanes[0] || 'Lane 01');
+    const nextLane = lanes.includes(selectedLane) ? selectedLane : (lanes[0] || '');
     setSelectedLane(nextLane);
     syncLanesFromSupabase(newUnit).then((synced) => {
       if (synced && synced.length > 0) {

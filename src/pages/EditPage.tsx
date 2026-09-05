@@ -65,7 +65,7 @@ export const EditPage: React.FC = () => {
   const [availableUnits, setAvailableUnits] = useState<string[]>(getAvailableUnits);
   const [selectedLane, setSelectedLane] = useState<string>(() => {
     const lanes = getAvailableLanes('Unit 01');
-    return lanes[0] || 'Lane 01';
+    return lanes[0] || '';
   });
   const [availableLanes, setAvailableLanes] = useState<string[]>(() => getAvailableLanes('Unit 01'));
   const [availableSupervisors, setAvailableSupervisors] = useState<SupervisorItem[]>(getAvailableSupervisors);
@@ -121,7 +121,7 @@ export const EditPage: React.FC = () => {
     setSelectedUnit(newUnit);
     const lanesForUnit = getAvailableLanes(newUnit);
     setAvailableLanes(lanesForUnit);
-    const nextLane = lanesForUnit.includes(selectedLane) ? selectedLane : (lanesForUnit[0] || 'Lane 01');
+    const nextLane = lanesForUnit.includes(selectedLane) ? selectedLane : (lanesForUnit[0] || '');
     setSelectedLane(nextLane);
     syncLanesFromSupabase(newUnit).then((lanes) => {
       if (lanes && lanes.length > 0) {

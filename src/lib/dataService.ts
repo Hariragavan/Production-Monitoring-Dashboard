@@ -60,14 +60,59 @@ export function getTodayDateString(): string {
 
 const DEFAULT_LANES = ['Lane 01', 'Lane 02', 'Lane 03', 'Lane 04'];
 const LANES_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_lanes_';
+const DELETED_LANES_STORAGE_KEY_PREFIX = 'sup_tv_dashboard_deleted_lanes_';
+
+function getDeletedLanes(unitName: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(`${DELETED_LANES_STORAGE_KEY_PREFIX}${unitName}`);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {
+    // ignore
+  }
+  return new Set();
+}
+
+function addDeletedLane(lane: string, unitName: string) {
+  try {
+    const deleted = getDeletedLanes(unitName);
+    deleted.add(lane);
+    localStorage.setItem(
+      `${DELETED_LANES_STORAGE_KEY_PREFIX}${unitName}`,
+      JSON.stringify(Array.from(deleted))
+    );
+  } catch {
+    // ignore
+  }
+}
+
+function removeDeletedLane(lane: string, unitName: string) {
+  try {
+    const deleted = getDeletedLanes(unitName);
+    deleted.delete(lane);
+    localStorage.setItem(
+      `${DELETED_LANES_STORAGE_KEY_PREFIX}${unitName}`,
+      JSON.stringify(Array.from(deleted))
+    );
+  } catch {
+    // ignore
+  }
+}
 
 export function getAvailableLanes(unitName: string = 'Unit 01'): string[] {
   try {
     const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
     const stored = localStorage.getItem(key);
+    const deleted = getDeletedLanes(unitName);
+
     if (stored) {
       const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const filtered = parsed.filter((l) => !deleted.has(l));
+        if (filtered.length > 0) return filtered;
+      }
     }
     // Fallback: If Unit 01, check legacy un-scoped key
     if (unitName === 'Unit 01') {
@@ -75,17 +120,20 @@ export function getAvailableLanes(unitName: string = 'Unit 01'): string[] {
       if (legacy) {
         const parsed = JSON.parse(legacy);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          localStorage.setItem(key, JSON.stringify(parsed));
-          return parsed;
+          const filtered = parsed.filter((l) => !deleted.has(l));
+          if (filtered.length > 0) {
+            localStorage.setItem(key, JSON.stringify(filtered));
+            return filtered;
+          }
         }
       }
-      return DEFAULT_LANES;
     }
-    return ['Lane 01'];
+    const fallback = DEFAULT_LANES.filter((l) => !deleted.has(l));
+    return fallback;
   } catch {
     // ignore
   }
-  return unitName === 'Unit 01' ? DEFAULT_LANES : ['Lane 01'];
+  return DEFAULT_LANES;
 }
 
 export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promise<string[]> {
@@ -105,13 +153,20 @@ export async function syncLanesFromSupabase(unitName: string = 'Unit 01'): Promi
           .eq('unit_id', unitData.id);
 
         if (data && data.length > 0) {
-          const lanesFromDb = Array.from(new Set(data.map((d: any) => d.lane_name).filter(Boolean)));
-          const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
-          localStorage.setItem(key, JSON.stringify(lanesFromDb));
-          window.dispatchEvent(
-            new CustomEvent('production-lanes-updated', { detail: { lanes: lanesFromDb, unitName } })
+          const deleted = getDeletedLanes(unitName);
+          // Never resurrect lanes the user explicitly deleted!
+          const lanesFromDb = Array.from(
+            new Set(data.map((d: any) => d.lane_name).filter((l: any) => Boolean(l) && !deleted.has(l)))
           );
-          return lanesFromDb;
+
+          if (lanesFromDb.length > 0) {
+            const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
+            localStorage.setItem(key, JSON.stringify(lanesFromDb));
+            window.dispatchEvent(
+              new CustomEvent('production-lanes-updated', { detail: { lanes: lanesFromDb, unitName } })
+            );
+            return lanesFromDb;
+          }
         }
       }
     } catch (err) {
@@ -129,6 +184,9 @@ export async function addAvailableLane(
   const trimmed = newLane.trim();
   if (!trimmed) return { success: false, lanes: current, error: 'Lane name cannot be empty' };
   if (current.includes(trimmed)) return { success: false, lanes: current, error: `Lane "${trimmed}" already exists` };
+
+  // Remove from deleted list if re-added explicitly by user
+  removeDeletedLane(trimmed, unitName);
 
   const updated = [...current, trimmed];
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
@@ -182,6 +240,9 @@ export async function deleteAvailableLane(
   const key = `${LANES_STORAGE_KEY_PREFIX}${unitName}`;
   localStorage.setItem(key, JSON.stringify(updated));
 
+  // Permanently record in deleted lanes so it is NEVER automatically resurrected
+  addDeletedLane(laneToDelete, unitName);
+
   let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
     try {
@@ -192,6 +253,7 @@ export async function deleteAvailableLane(
         .maybeSingle();
 
       if (unitData?.id) {
+        // Delete all production_days for this lane to ensure it does not persist in DB
         const { error } = await supabase
           .from('production_days')
           .delete()
@@ -243,6 +305,9 @@ export async function renameAvailableLane(
     // ignore
   }
 
+  addDeletedLane(trimmedOld, unitName);
+  removeDeletedLane(trimmedNew, unitName);
+
   let supabaseError: string | undefined;
   if (isSupabaseConfigured && supabase) {
     try {
@@ -253,30 +318,15 @@ export async function renameAvailableLane(
         .maybeSingle();
 
       if (unitData?.id) {
-        const { data: updatedRows, error } = await supabase
+        const { error } = await supabase
           .from('production_days')
           .update({ lane_name: trimmedNew })
           .eq('unit_id', unitData.id)
-          .eq('lane_name', trimmedOld)
-          .select();
+          .eq('lane_name', trimmedOld);
 
         if (error) {
           supabaseError = error.message;
           console.warn(`Could not rename lane in Supabase for ${unitName}:`, error);
-        } else if (!updatedRows || updatedRows.length === 0) {
-          // If no rows existed for old lane in DB, seed new lane for today
-          const today = new Date().toISOString().split('T')[0];
-          const laneSup = getLaneSupervisor(trimmedNew);
-          await supabase.from('production_days').insert({
-            unit_id: unitData.id,
-            production_date: today,
-            lane_name: trimmedNew,
-            shift: 'Shift 01',
-            supervisor_name: laneSup.name,
-            supervisor_id: laneSup.id,
-            worker_name: '',
-            worker_id: '',
-          });
         }
       }
     } catch (err: any) {
@@ -969,51 +1019,9 @@ export async function fetchDashboardData(date: string, lane = 'Lane 01', unitNam
           supabase.from('production_days').delete().in('id', duplicateIds).then();
         }
 
-        // If not found in database, create the day with clean blank state in Supabase
+        // If not found in database, return clean local data without auto-creating rows in Supabase
         if (!day) {
-          const laneSup = getLaneSupervisor(lane);
-          const shiftVal = 'Shift 01';
-          let { data: newDay, error: insertDayErr } = await supabase
-            .from('production_days')
-            .insert({
-              unit_id: unit.id,
-              production_date: date,
-              shift: shiftVal,
-              supervisor_name: laneSup.name,
-              supervisor_id: laneSup.id,
-              lane_name: lane,
-              worker_name: '',
-              worker_id: '',
-            })
-            .select()
-            .single();
-
-          if (insertDayErr && insertDayErr.code === '23505') {
-            // Unique conflict retry
-            const { data: refoundList } = await supabase
-              .from('production_days')
-              .select('*')
-              .eq('unit_id', unit.id)
-              .eq('production_date', date)
-              .eq('lane_name', lane)
-              .order('updated_at', { ascending: false });
-            if (refoundList && refoundList.length > 0) {
-              newDay = refoundList[0];
-            }
-          }
-
-          if (newDay) {
-            day = newDay;
-            // Pre-populate 10 clean blank hourly rows (0s)
-            const blankHourly = Array.from({ length: 10 }, (_, i) => ({
-              production_day_id: day.id,
-              hour: i + 1,
-              input_available: 0,
-              target: 0,
-              actual: 0,
-            }));
-            await supabase.from('hourly_production').insert(blankHourly);
-          }
+          return getLocalData(date, lane, unitName);
         }
 
         if (day) {
