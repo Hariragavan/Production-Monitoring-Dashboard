@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { CriticalOperation } from '../../types';
-import { Plus, Trash2, Users, Copy, CheckCircle2, Clock, X, Check } from 'lucide-react';
+import { Plus, Trash2, Users, Copy, CheckCircle2, Clock, X, Check, Pin } from 'lucide-react';
 import {
   getAvailableWorkers,
   syncWorkersFromSupabase,
@@ -28,6 +28,7 @@ const DEFAULT_OP_SEQUENCE = [
   'BOTTOM RIB TOP STITCH',
   'SLEEVE TOP STITCH',
   'NECK TOP STITCH',
+  'CHECKER',
 ];
 
 export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> = ({
@@ -88,15 +89,82 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
     return 'th';
   };
 
+  // Helper: operation is CHECKER
+  const isChecker = (name?: string) => (name || '').trim().toUpperCase().includes('CHECKER');
+
   // Filter operations for current active hour
+  // Rule 1: CHECKER is always in the last row whatever device no!
+  // Rule 2: Pinned operations stay in their pinned place whatever device no!
   const currentHourOps = operations
     .filter((op) => op.hour === activeHour)
-    .sort((a, b) => a.operation_no - b.operation_no);
+    .sort((a, b) => {
+      // 1. CHECKER always goes to the very last row!
+      const aChecker = isChecker(a.operation_name);
+      const bChecker = isChecker(b.operation_name);
+      if (aChecker && !bChecker) return 1;
+      if (!aChecker && bChecker) return -1;
+      if (aChecker && bChecker) {
+        const aOrder = a.pinned_order ?? a.operation_no;
+        const bOrder = b.pinned_order ?? b.operation_no;
+        return aOrder - bOrder;
+      }
+
+      // 2. Pinned items stay in their assigned place whatever device no
+      const aPinned = a.pinned !== false;
+      const bPinned = b.pinned !== false;
+      const aOrder = a.pinned_order !== undefined ? a.pinned_order : (aPinned ? a.operation_no : undefined);
+      const bOrder = b.pinned_order !== undefined ? b.pinned_order : (bPinned ? b.operation_no : undefined);
+
+      if (aOrder !== undefined && bOrder !== undefined) {
+        if (aOrder !== bOrder) return aOrder - bOrder;
+      } else if (aOrder !== undefined) {
+        if (aOrder !== b.operation_no) return aOrder - b.operation_no;
+      } else if (bOrder !== undefined) {
+        if (a.operation_no !== bOrder) return a.operation_no - bOrder;
+      }
+
+      // 3. Fallback to Device No
+      if (a.operation_no !== b.operation_no) return a.operation_no - b.operation_no;
+      return (a.operation_name || '').localeCompare(b.operation_name || '');
+    });
 
   // Compute total output and target for this hour
   const hourTotalActual = currentHourOps.reduce((sum, op) => sum + (Number(op.production) || 0), 0);
   const hourTotalTarget = currentHourOps.reduce((sum, op) => sum + (Number(op.target) || 0), 0);
   const hourEfficiency = hourTotalTarget > 0 ? Math.round((hourTotalActual / hourTotalTarget) * 100) : 0;
+
+  // Toggle pin for this operation (keeps it in that place whatever device no is typed)
+  const handleTogglePin = (opId: string | undefined) => {
+    const currentOp = operations.find((o) => o.id === opId);
+    if (!currentOp) return;
+
+    const isCurrentlyPinned = currentOp.pinned !== false;
+    const newPinnedState = !isCurrentlyPinned;
+
+    const currentIndex = currentHourOps.findIndex((o) => o.id === opId);
+    const assignedPlace = currentIndex >= 0 ? currentIndex + 1 : currentOp.operation_no;
+
+    const updated = operations.map((o) => {
+      // Pin across all hours for this operation so the shift stays in this place
+      if (o.id === opId || (o.operation_name === currentOp.operation_name && o.worker_name === currentOp.worker_name)) {
+        return {
+          ...o,
+          pinned: newPinnedState,
+          pinned_order: newPinnedState ? (o.pinned_order ?? assignedPlace) : undefined,
+        };
+      }
+      return o;
+    });
+
+    onChange(updated);
+
+    if (newPinnedState) {
+      setOpFeedback(`📌 Pinned in Row #${assignedPlace} (stays in this place whatever Device No is typed)`);
+    } else {
+      setOpFeedback(`✓ Unpinned from fixed place`);
+    }
+    setTimeout(() => setOpFeedback(null), 3000);
+  };
 
   // Handlers for modifying operations for this specific hour
   const handleUpdateField = (
@@ -203,6 +271,8 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
       target: defaultTarget,
       completed: false,
       status: 'in_progress',
+      pinned: true,
+      pinned_order: nextDeviceNo,
     };
 
     onChange([...operations, newOp]);
@@ -576,20 +646,42 @@ export const CriticalOperationsEditor: React.FC<CriticalOperationsEditorProps> =
 
                 return (
                   <tr key={op.id || index} className="hover:bg-slate-50 transition-colors">
-                    {/* Device Number Input (Type device number directly) */}
-                    <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50">
-                      <input
-                        type="number"
-                        min="1"
-                        value={op.operation_no === 0 ? '' : op.operation_no}
-                        placeholder="1"
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
-                          handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
-                        }}
-                        className="w-16 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
-                        title="Type Device Number"
-                      />
+                    {/* Device Number Input with Pin Symbol */}
+                    <td className="px-2 py-2.5 border-r border-slate-200 text-center font-black bg-slate-50 min-w-[100px]">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <input
+                          type="number"
+                          min="1"
+                          value={op.operation_no === 0 ? '' : op.operation_no}
+                          placeholder="1"
+                          onChange={(e) => {
+                            const val = e.target.value === '' ? 0 : parseInt(e.target.value, 10);
+                            handleUpdateField(op.id, 'operation_no', isNaN(val) ? 0 : val);
+                          }}
+                          className="w-14 px-1.5 py-1.5 text-center font-black bg-white border border-slate-300 rounded text-xs text-slate-900 focus:ring-2 focus:ring-cyan-500 outline-none shadow-2xs"
+                          title="Type Device Number"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePin(op.id)}
+                          className={`p-1.5 rounded-md transition-all cursor-pointer ${
+                            op.pinned !== false
+                              ? 'text-cyan-800 bg-cyan-100 hover:bg-cyan-200 border border-cyan-300 shadow-2xs'
+                              : 'text-slate-300 hover:text-slate-600 hover:bg-slate-200/70 border border-transparent'
+                          }`}
+                          title={
+                            op.pinned !== false
+                              ? '📌 Pinned in this place (Click to unpin)'
+                              : 'Click to pin this row in this place'
+                          }
+                        >
+                          <Pin
+                            className={`w-3.5 h-3.5 transition-transform ${
+                              op.pinned !== false ? 'fill-cyan-700 text-cyan-800 rotate-45' : ''
+                            }`}
+                          />
+                        </button>
+                      </div>
                     </td>
 
                     {/* Operation Name Dropdown & Add Button */}

@@ -476,6 +476,7 @@ export const DEFAULT_OPERATIONS: string[] = [
   'BOTTOM RIB TOP STITCH',
   'SLEEVE TOP STITCH',
   'NECK TOP STITCH',
+  'CHECKER',
 ];
 
 export function getAvailableOperations(): string[] {
